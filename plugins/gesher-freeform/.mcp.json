@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gesher-freeform": {
+      "command": "${HOME}/.local/bin/freeform-cli",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "gesher-contacts",
+  "description": "Find, read and edit Apple Contacts: search by name, phone or email, update phones/emails/addresses/birthdays, manage groups, upcoming birthdays, duplicates and vCards. Use for any question about the user's contacts.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ephraim Elgrabli",
+    "url": "https://github.com/EphraimElgrabli"
+  },
+  "homepage": "https://github.com/EphraimElgrabli/gesher",
+  "repository": "https://github.com/EphraimElgrabli/gesher",
+  "license": "GPL-3.0-only",
+  "keywords": [
+    "apple",
+    "macos",
+    "mcp",
+    "gesher",
+    "contacts",
+    "address-book",
+    "vcard"
+  ]
+}

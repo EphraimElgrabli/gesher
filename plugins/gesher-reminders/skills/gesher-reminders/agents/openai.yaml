@@ -1,0 +1,5 @@
+interface:
+  display_name: "Gesher Reminders"
+  short_description: "Organize Apple Reminders lists, sections, and tasks"
+  icon_small: "./assets/icon.png"
+  icon_large: "./assets/icon.png"

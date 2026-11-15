@@ -1,0 +1,5 @@
+interface:
+  display_name: "Gesher Maps"
+  short_description: "Find places and plan routes with Maps CLI"
+  icon_small: "./assets/icon.png"
+  icon_large: "./assets/icon.png"

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gesher-maps": {
+      "command": "${HOME}/.local/bin/maps-cli",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "gesher-freeform",
+  "version": "1.0.0",
+  "description": "Read Apple Freeform boards and their content, create boards and add text, links, images or files.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Gesher Freeform",
+    "shortDescription": "Read and add to Freeform boards",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "longDescription": "List Freeform boards and read their items (text, sticky notes, shapes, connectors, images, files, links) with positions, sizes, colors and stacking order. Create boards and add text boxes, links, images and files; Freeform places and syncs them. Renaming, deleting and editing items stay in the Freeform app.",
+    "developerName": "Ephraim Elgrabli",
+    "category": "Productivity",
+    "capabilities": [
+      "List boards",
+      "Read board items",
+      "Create boards",
+      "Add text, links, images and files"
+    ],
+    "defaultPrompt": [
+      "Which Freeform boards did I work on most recently?",
+      "Summarize what is on my Freeform board 'Trip ideas'.",
+      "Add a link to https://www.apple.com to my Freeform board 'Trip ideas'."
+    ]
+  },
+  "requires_local_executor": true
+}

@@ -1,0 +1,28 @@
+{
+  "name": "gesher-notes",
+  "version": "1.0.0",
+  "description": "Capture, find, organize and edit Apple Notes: folders, Markdown notes, checklists, tags, tables and attachments. Use when the user wants work saved in or read from Apple Notes.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Gesher Notes",
+    "shortDescription": "Write and organize Apple Notes",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "longDescription": "Create notes from Markdown, search full text, organize folders, pin, move, delete and restore notes, tick checklists and read tags and attachments, while preserving the rest of each note.",
+    "developerName": "Ephraim Elgrabli",
+    "category": "Productivity",
+    "capabilities": [
+      "Search notes",
+      "Write notes",
+      "Organize folders",
+      "Edit checklists"
+    ],
+    "defaultPrompt": [
+      "Save a trip plan in Notes with a packing checklist.",
+      "Find my notes about the project and summarize the decisions.",
+      "Add a 'Next steps' section to my Project Kickoff note."
+    ]
+  },
+  "requires_local_executor": true
+}

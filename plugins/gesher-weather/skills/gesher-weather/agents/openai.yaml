@@ -1,0 +1,5 @@
+interface:
+  display_name: "Gesher Weather"
+  short_description: "Check forecasts and manage Weather favorites"
+  icon_small: "./assets/icon.png"
+  icon_large: "./assets/icon.png"

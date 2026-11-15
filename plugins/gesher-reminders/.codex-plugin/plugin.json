@@ -1,0 +1,27 @@
+{
+  "name": "gesher-reminders",
+  "version": "1.0.0",
+  "description": "Capture, review and organize Apple Reminders: smart views, search, lists, groups, sections, tags, subtasks, recurrence and alerts. Use when the user asks about reminders, to-dos or tasks.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Gesher Reminders",
+    "shortDescription": "Organize tasks and lists",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "longDescription": "Capture tasks in batches, review today, overdue and upcoming work, and organize lists, groups, sections, tags, subtasks, recurrence and early alerts in Apple Reminders.",
+    "developerName": "Ephraim Elgrabli",
+    "category": "Productivity",
+    "capabilities": [
+      "Review tasks",
+      "Organize lists",
+      "Update tasks"
+    ],
+    "defaultPrompt": [
+      "Create a trip checklist with sections for packing and before leaving.",
+      "What tasks are overdue or due today?",
+      "Mark 'Call the bank' as done."
+    ]
+  },
+  "requires_local_executor": true
+}

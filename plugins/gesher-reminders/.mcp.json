@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gesher-reminders": {
+      "command": "${HOME}/.local/bin/reminders-cli",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

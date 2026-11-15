@@ -1,0 +1,21 @@
+{
+  "name": "gesher-maps",
+  "description": "Find places, opening hours and travel times, and compare Apple Maps routes for driving, walking, transit or cycling.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ephraim Elgrabli",
+    "url": "https://github.com/EphraimElgrabli"
+  },
+  "homepage": "https://github.com/EphraimElgrabli/gesher",
+  "repository": "https://github.com/EphraimElgrabli/gesher",
+  "license": "GPL-3.0-only",
+  "keywords": [
+    "apple",
+    "macos",
+    "mcp",
+    "gesher",
+    "maps",
+    "directions",
+    "places"
+  ]
+}

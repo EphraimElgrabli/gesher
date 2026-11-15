@@ -1,0 +1,157 @@
+#!/bin/bash
+# gesher <app> ...  forwards to <app>-cli from the same release, e.g. `gesher reminders mcp`;
+# plus installation commands (connect, doctor, permissions, version, update, rollback, uninstall).
+set -euo pipefail
+
+installer_url="https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/install.sh"
+apps=(reminders calendar contacts notes maps weather freeform)
+
+launcher="$0"
+while [[ -L "$launcher" ]]; do
+  target="$(readlink "$launcher")"
+  if [[ "$target" == /* ]]; then launcher="$target"; else launcher="$(dirname -- "$launcher")/${target}"; fi
+done
+release="$(cd -P -- "$(dirname -- "$launcher")" && pwd)"
+
+if [[ -t 1 ]]; then
+  bold=$'\033[1m' green=$'\033[32m' yellow=$'\033[33m' red=$'\033[31m' reset=$'\033[0m'
+else
+  bold="" green="" yellow="" red="" reset=""
+fi
+
+installed_apps() {
+  local app
+  for app in "${apps[@]}"; do [[ -x "${release}/${app}-cli" ]] && printf '%s\n' "$app"; done
+  return 0
+}
+
+# PREFIX of this install: the CLIs run from PREFIX/lib/gesher/active (or .../releases/<name>).
+install_prefix() {
+  local up
+  if [[ "$(basename -- "$release")" == active ]]; then up="../../.."; else up="../../../.."; fi
+  [[ -f "${release}/install.sh" ]] || { printf 'gesher %s only works in an installed copy (not in a checkout).\n' "$1" >&2; exit 64; }
+  cd -P -- "${release}/${up}" && pwd
+}
+
+usage() {
+  cat <<EOF
+${bold}gesher${reset} - your Mac’s apps, for AI agents: CLIs and MCP servers
+
+Usage: gesher <app> <command> [options]     same as <app>-cli <command> [options]
+       gesher <command>
+
+Apps:  $(installed_apps | paste -sd ' ' -)
+
+Commands:
+  connect       connect Gesher to your AI apps (Claude, Codex, Cursor, VS Code, ...)
+  doctor        check every app: version, macOS privacy access (--json for agents)
+  permissions   ask macOS for each app's privacy access, one app at a time
+  plugins       install or refresh the Codex plugins only
+  version       print the installed version
+  update        install the latest release
+  rollback      switch back to the previous release
+  uninstall     remove Gesher (keeps ~/.config/gesher)
+
+Every app:  <app>-cli --help | <app>-cli <command> --help | <app>-cli mcp (MCP server over stdio)
+EOF
+}
+
+# Pull "key":"value" (or "key":null) out of the compact JSON a CLI prints.
+json_field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" <<<"$2" | head -n 1; }
+
+# doctor --json: one JSON array with every app's own doctor report.
+doctor_json() {
+  local app output first=1 failed=0
+  printf '['
+  while IFS= read -r app; do
+    output="$("${release}/${app}-cli" doctor 2>&1 </dev/null)" || failed=1
+    [[ "$output" == "{"* ]] || output="{\"app\":\"${app}\",\"error\":\"doctor failed\"}"
+    [[ "$first" == 1 ]] || printf ','
+    first=0
+    printf '%s' "$output"
+  done < <(installed_apps)
+  printf ']\n'
+  return "$failed"
+}
+
+doctor() {
+  [[ "${1:-}" == --json ]] && { doctor_json; return; }
+  local app output status colour permission version failed=0
+  printf '%s%-11s %-9s %-7s %s%s\n' "$bold" APP VERSION STATUS PERMISSION "$reset"
+  while IFS= read -r app; do
+    if output="$("${release}/${app}-cli" doctor 2>&1 </dev/null)"; then
+      version="$(json_field version "$output")"
+      permission="$(json_field permission "$output")"
+      case "${permission:-none}" in
+        authorized | none) status=ok colour="$green" ;;
+        *) status=needs colour="$yellow" failed=1 ;;
+      esac
+    else
+      version="" permission="" status=error colour="$red" failed=1
+    fi
+    printf '%-11s %-9s %s%-7s%s %s\n' "$app" "${version:--}" "$colour" "$status" "$reset" "${permission:--}"
+  done < <(installed_apps)
+  printf '\n%s\n' "$(sw_vers -productName) $(sw_vers -productVersion) ($(uname -m))"
+  if [[ "$failed" == 1 ]]; then
+    printf 'Grant access with: gesher permissions   (or <app>-cli permissions --request)\n'
+    return 1
+  fi
+  printf 'All set. Restart your AI apps if they were open while you granted access.\n'
+}
+
+permissions() {
+  local app
+  while IFS= read -r app; do
+    "${release}/${app}-cli" --help 2>/dev/null </dev/null | grep -E '^[[:space:]]+permissions[[:space:]]' >/dev/null || continue
+    printf '%s==> %s%s\n' "$bold" "$app" "$reset"
+    "${release}/${app}-cli" permissions --request --format pretty </dev/null || true
+    printf '\n'
+  done < <(installed_apps)
+}
+
+case "${1:-}" in
+  "" | -h | --help | help) usage; exit 0 ;;
+  --version | version)
+    if [[ -f "${release}/RELEASE" ]]; then
+      printf 'gesher %s (%s)\n' "$("${release}/weather-cli" --version)" "$(sed -n 's/^commit=//p' "${release}/RELEASE")"
+    else
+      printf 'gesher %s\n' "$("${release}/weather-cli" --version)"
+    fi
+    exit 0 ;;
+  doctor) shift; doctor "$@"; exit $? ;;
+  permissions) permissions; exit 0 ;;
+  connect)
+    shift
+    exec "${release}/connect.sh" --bin-dir "$(install_prefix connect)/bin" "$@" ;;
+  plugins)
+    shift
+    exec "${release}/install-plugins.sh" --bin-dir "$(install_prefix plugins)/bin" "$@" ;;
+  update)
+    shift
+    if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+      printf 'Usage: gesher update [--version X.Y.Z]\n\nInstalls the latest release (or the given one) in place. Permissions and AI app\nconnections are kept; connect more with: gesher connect\n'
+      exit 0
+    fi
+    prefix="$(install_prefix update)"
+    curl -fsSL "$installer_url" | bash -s -- --prefix "$prefix" --no-connect --no-modify-path "$@"
+    exit $? ;;
+  rollback | uninstall)
+    command="$1"
+    shift
+    prefix="$(install_prefix "$command")"
+    exec "${release}/install.sh" "--${command}" --prefix "$prefix" "$@" ;;
+esac
+
+app="$1"
+shift
+if [[ ! -x "${release}/${app}-cli" ]]; then
+  if [[ -t 1 ]]; then
+    printf "gesher: no app or command '%s'. Try: gesher --help\n" "$app" >&2
+  else
+    name="${app//\\/\\\\}"
+    name="${name//\"/\\\"}"
+    printf '{"error":{"code":"unknown_operation","message":"Unknown app or command %s.","hint":"Apps: %s. Commands: connect doctor permissions plugins version update rollback uninstall."}}\n' "$name" "${apps[*]}"
+  fi
+  exit 64
+fi
+exec "${release}/${app}-cli" "$@"

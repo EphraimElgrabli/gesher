@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gesher-calendar": {
+      "command": "${HOME}/.local/bin/calendar-cli",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

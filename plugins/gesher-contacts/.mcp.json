@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gesher-contacts": {
+      "command": "${HOME}/.local/bin/contacts-cli",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

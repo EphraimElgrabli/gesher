@@ -1,0 +1,27 @@
+{
+  "name": "gesher-weather",
+  "version": "1.0.0",
+  "description": "Check current weather, hourly and daily forecasts, next-hour rain, severe-weather alerts, air quality, and manage saved Apple Weather locations. Use for weather questions or adding and removing Weather favorites.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Gesher Weather",
+    "shortDescription": "Forecasts for everyday plans",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "longDescription": "Check current conditions, hourly and daily forecasts and air quality for any place, in your units and local time, and manage saved Weather locations.",
+    "developerName": "Ephraim Elgrabli",
+    "category": "Productivity",
+    "capabilities": [
+      "Read forecasts",
+      "Check air quality",
+      "Manage saved places"
+    ],
+    "defaultPrompt": [
+      "When's the best time tomorrow for a bike ride in Haifa?",
+      "Compare the weather for a morning walk in Haifa and Tel Aviv.",
+      "Add Haifa to my saved Weather locations."
+    ]
+  },
+  "requires_local_executor": true
+}

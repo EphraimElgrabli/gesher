@@ -1,0 +1,21 @@
+{
+  "name": "gesher-calendar",
+  "description": "Read the Apple Calendar agenda, find free time, and create, reschedule or delete events (repeating events, alerts, invitees) and calendars. Use for schedule questions, booking or moving meetings, availability and invitations.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ephraim Elgrabli",
+    "url": "https://github.com/EphraimElgrabli"
+  },
+  "homepage": "https://github.com/EphraimElgrabli/gesher",
+  "repository": "https://github.com/EphraimElgrabli/gesher",
+  "license": "GPL-3.0-only",
+  "keywords": [
+    "apple",
+    "macos",
+    "mcp",
+    "gesher",
+    "calendar",
+    "events",
+    "scheduling"
+  ]
+}

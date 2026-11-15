@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gesher-weather": {
+      "command": "${HOME}/.local/bin/weather-cli",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "gesher-calendar",
+  "version": "1.0.0",
+  "description": "Read the Apple Calendar agenda, find free time, and create, reschedule or delete events (repeating events, alerts, invitees) and calendars. Use for schedule questions, booking or moving meetings, availability and invitations.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Gesher Calendar",
+    "shortDescription": "Plan time in Apple Calendar",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "longDescription": "Daily agenda and search across calendars, free-slot finding with working hours, conflict warnings, events with alerts, travel time, structured locations and repeat rules (edit this, future or all occurrences), invitations, batch changes with backups, and calendar management.",
+    "developerName": "Ephraim Elgrabli",
+    "category": "Productivity",
+    "capabilities": [
+      "Read schedules",
+      "Find free time",
+      "Create and reschedule events",
+      "Manage repeating events",
+      "Answer invitations",
+      "Manage calendars"
+    ],
+    "defaultPrompt": [
+      "Find a free half hour tomorrow between nine and twelve.",
+      "Move my 3 pm meeting to 11 and keep its length.",
+      "Find a morning slot next week with fifteen minutes between meetings."
+    ]
+  },
+  "requires_local_executor": true
+}

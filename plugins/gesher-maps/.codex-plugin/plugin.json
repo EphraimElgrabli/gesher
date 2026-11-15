@@ -1,0 +1,27 @@
+{
+  "name": "gesher-maps",
+  "version": "1.0.0",
+  "description": "Find places, opening hours and travel times, and compare Apple Maps routes for driving, walking, transit or cycling.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Gesher Maps",
+    "shortDescription": "Find places and compare routes",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "longDescription": "Search places and nearby businesses, read address, phone, website, opening hours and rating, and get driving, walking, cycling and transit routes with departure and arrival times. Route availability depends on the location and mode.",
+    "developerName": "Ephraim Elgrabli",
+    "category": "Productivity",
+    "capabilities": [
+      "Find places",
+      "Get routes",
+      "Resolve addresses"
+    ],
+    "defaultPrompt": [
+      "Find three coffee places near the Bahai Gardens in Haifa.",
+      "Compare walking and cycling from the Louvre to the Eiffel Tower.",
+      "Plan a relaxed morning with a garden, coffee and a waterfront walk."
+    ]
+  },
+  "requires_local_executor": true
+}

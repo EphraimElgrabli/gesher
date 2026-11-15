@@ -1,0 +1,5 @@
+interface:
+  display_name: "Gesher Notes"
+  short_description: "Find and edit Apple Notes and folders"
+  icon_small: "./assets/icon.png"
+  icon_large: "./assets/icon.png"

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Gesher Calendar"
+  short_description: "Read schedules and manage Apple Calendar events"
+  icon_small: "./assets/icon.png"
+  icon_large: "./assets/icon.png"

@@ -1,0 +1,28 @@
+{
+  "name": "gesher-contacts",
+  "version": "1.0.0",
+  "description": "Find, read and edit Apple Contacts: search by name, phone or email, update phones/emails/addresses/birthdays, manage groups, upcoming birthdays, duplicates and vCards. Use for any question about the user's contacts.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Gesher Contacts",
+    "shortDescription": "Look up and update your contacts",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "longDescription": "Search Apple Contacts by name (Hebrew included), phone number in any format or email; read full cards; create and update contacts value by value; manage groups; see upcoming birthdays; find likely duplicates; export and import vCards.",
+    "developerName": "Ephraim Elgrabli",
+    "category": "Productivity",
+    "capabilities": [
+      "Search contacts",
+      "Edit contacts",
+      "Manage groups",
+      "Birthdays and vCards"
+    ],
+    "defaultPrompt": [
+      "Whose number is 054-123-4567?",
+      "Add a work phone to Dana's card.",
+      "Whose birthdays are coming up this month?"
+    ]
+  },
+  "requires_local_executor": true
+}

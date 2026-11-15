@@ -1,0 +1,21 @@
+{
+  "name": "gesher-reminders",
+  "description": "Capture, review and organize Apple Reminders: smart views, search, lists, groups, sections, tags, subtasks, recurrence and alerts. Use when the user asks about reminders, to-dos or tasks.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ephraim Elgrabli",
+    "url": "https://github.com/EphraimElgrabli"
+  },
+  "homepage": "https://github.com/EphraimElgrabli/gesher",
+  "repository": "https://github.com/EphraimElgrabli/gesher",
+  "license": "GPL-3.0-only",
+  "keywords": [
+    "apple",
+    "macos",
+    "mcp",
+    "gesher",
+    "reminders",
+    "tasks",
+    "todo"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gesher-notes": {
+      "command": "${HOME}/.local/bin/notes-cli",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

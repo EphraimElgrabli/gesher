@@ -1,0 +1,31 @@
+# Gesher
+
+> Gesher gives AI agents native access to the apps on a Mac: Reminders, Calendar, Contacts, Notes, Maps, Weather and Freeform. Each app is a local command-line tool and an MCP server over stdio (117 tools, plus `doctor` and `permissions` diagnostics). Gesher itself runs entirely on the Mac: no Gesher servers, accounts or telemetry. macOS on Apple silicon; tested on macOS 27. GPL-3.0. Experimental and shared as is: no support; issues and pull requests are closed.
+
+To set Gesher up for your user, follow docs/install.md. In short: `curl -fsSL https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/install.sh | bash -s -- --no-connect`, then `gesher connect --list`, ask the user which AI apps to connect, `gesher connect <those apps>`, `gesher permissions`, `gesher doctor`.
+
+Once connected, every tool takes names instead of ids (case- and accent-insensitive, unique prefixes work) and natural dates ("tomorrow 9:00", "next friday"). Errors are JSON with a `code`, a `hint` and, when a name is ambiguous, `candidates`. Writes are verified by reading them back; bulk deletes are backed up to ~/.config/gesher/backups.
+
+## Setup
+
+- [Install guide for agents](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/docs/install.md): install, connect AI apps, grant permissions, verify
+- [Permissions](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/docs/permissions.md): what each app needs from macOS and why
+- [Connecting AI apps](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/docs/clients.md): `gesher connect`, and manual setup for every supported AI app
+- [Limitations](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/docs/limitations.md): what macOS reserves for Apple's own apps, supported platforms
+
+## Apps
+
+- [Reminders](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/reminders/README.md): lists, sections, tags, smart lists, templates, subtasks, attachments (28 tools)
+- [Calendar](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/calendar/README.md): agenda, search, recurring events, alerts, free slots, invitations (17 tools)
+- [Contacts](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/contacts/README.md): search by name, phone or email, full cards, groups, birthdays, vCard (21 tools)
+- [Notes](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/notes/README.md): Markdown read and write, folders, checklists, tables, tags, attachments (29 tools)
+- [Maps](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/maps/README.md): place search, nearby, details, routes and ETAs (6 tools)
+- [Weather](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/weather/README.md): current, hourly, daily, next-hour rain, alerts, air quality, saved locations (10 tools)
+- [Freeform](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/freeform/README.md): read and search boards, create boards, add text, links, images and files (6 tools)
+
+## Optional
+
+- [Architecture](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/docs/architecture.md): how the CLIs reach each app's own frameworks
+- [AGENTS.md](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/AGENTS.md): rules and patterns for working on the code
+- [Changelog](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/CHANGELOG.md)
+- [Legal](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/docs/legal.md)

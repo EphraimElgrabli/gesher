@@ -1,0 +1,5 @@
+interface:
+  display_name: "Gesher Freeform"
+  short_description: "List Freeform boards"
+  icon_small: "./assets/icon.png"
+  icon_large: "./assets/icon.png"

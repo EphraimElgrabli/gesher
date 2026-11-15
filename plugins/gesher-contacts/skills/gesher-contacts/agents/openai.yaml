@@ -1,0 +1,5 @@
+interface:
+  display_name: "Gesher Contacts"
+  short_description: "Look up and update Apple Contacts"
+  icon_small: "./assets/icon.png"
+  icon_large: "./assets/icon.png"

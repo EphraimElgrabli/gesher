@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>reminders-cli</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.ephraimelgrabli.gesher.reminders</string>
+	<key>CFBundleName</key>
+	<string>Gesher Reminders</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1.0.0</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Read and manage reminder lists, sections and tasks you request through Gesher.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Read and manage reminder lists, sections and tasks you request through Gesher.</string>
+</dict>
+</plist>
