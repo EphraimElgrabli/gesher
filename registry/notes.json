@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.0.0/gesher-notes-1.0.0.mcpb",
-      "fileSha256": "476e5ece4e03289c16086e868988f942cc5d276362b3315e2c6c81f706f72731",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.1.0/gesher-notes-1.1.0.mcpb",
+      "fileSha256": "3b36b807644b9afe81feb9fa8dca7e3f8928f4b14224d0f8577b34f1a1f3274c",
       "transport": {
         "type": "stdio"
       }
