@@ -1,6 +1,6 @@
 {
   "name": "gesher-contacts",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Find, read and edit Apple Contacts: search by name, phone or email, update phones/emails/addresses/birthdays, manage groups, upcoming birthdays, duplicates and vCards. Use for any question about the user's contacts.",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",

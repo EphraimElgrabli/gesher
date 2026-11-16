@@ -1,6 +1,6 @@
 {
   "name": "gesher-freeform",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Read Apple Freeform boards and their content, create boards and add text, links, images or files.",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",

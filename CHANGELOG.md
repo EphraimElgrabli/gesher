@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0 — 2026-11-17
+
+- Notes: `table_add_row` and `table_add_column` add a row or column to an existing table, at the
+  end or at a position, with optional cell text. Like `table_set_cell`, they need the note's
+  revision and read the note back to check that only the table changed. Notes: 31 tools, 119 in all.
+- Each app is also published as an MCP Bundle (`.mcpb`) on the release page and in the
+  [MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.EphraimElgrabli/gesher-<app>`.
+- Bug reports and pull requests are welcome; issue templates for bugs and feature requests.
+
 ## 1.0.0 — 2026-11-15
 
 First public release.
