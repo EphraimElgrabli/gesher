@@ -8,7 +8,9 @@
   </picture>
 </p>
 
-<p align="center"><b>Let Claude, Codex, Cursor or any MCP client work with seven Apple apps, including Reminders sections, Notes tags and Freeform boards.</b></p>
+<p align="center"><b>Give Claude, Codex or Cursor real access to Apple Reminders, Notes, Calendar and Freeform, including what AppleScript can't reach.</b></p>
+
+<p align="center">Reminders sections, smart lists and templates · Notes as Markdown with tags and tables · Freeform boards · Calendar, Contacts, Weather and Maps · works with the apps closed · one native Swift CLI and MCP server per app, 117 tools.</p>
 
 <p align="center">
   <a href="https://github.com/EphraimElgrabli/gesher/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/EphraimElgrabli/gesher?style=flat-square&label=release"></a>
@@ -17,31 +19,41 @@
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-3B82F6?style=flat-square"></a>
 </p>
 
-<p align="center"><img alt="Gesher in 30 seconds: your AI agent couldn't touch Apple's apps, now it can." src="docs/assets/launch.gif" width="100%"></p>
+<!-- Demo: a 20-30 s screen recording of one cross-app task goes here. -->
 
 ## Install
 
-Gesher is experimental and maintained. Connect only the apps you need, and review what your agent changes.
+- **Claude Desktop, one app at a time:** download `gesher-<app>-1.0.0.mcpb` from the [latest release](https://github.com/EphraimElgrabli/gesher/releases/latest) and open it; Claude Desktop installs it as an extension. Each bundle holds one app, and macOS asks for its permission again after each update.
+- **Let your agent do it:** paste this into Claude Code, Codex or Cursor:
 
-Requires an Apple silicon Mac running macOS 26 or later. Tested on macOS 27; macOS 26 should work but hasn't been tested yet. The binaries are not notarized: the installer signs them locally and may ask for your password to create a signing certificate. `GESHER_SIGN_IDENTITY=-` skips the certificate, but then you grant access again after each update.
+  ```text
+  Install Gesher on my Mac by following https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/docs/install.md
+  ```
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/install.sh | bash
-```
+- **Terminal, all seven apps:** installs every app, connects the AI apps you choose (Claude Code and Codex also get the Gesher plugins and skills), and keeps permissions across updates:
 
-The installer finds your AI apps and asks which ones to connect. Then, in a new Terminal window, run `gesher permissions` and click **Allow**. Notes and Freeform also need one drag into Full Disk Access, and Gesher opens that window for you. Restart your AI app. To connect more apps later, run `gesher connect`. [Permissions](docs/permissions.md) · [Other AI apps](docs/clients.md)
+  ```sh
+  curl -fsSL https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/install.sh | bash
+  ```
 
-Prefer to let your agent do it? Paste this into Claude Code, Codex or Cursor:
+  Then, in a new Terminal window, run `gesher permissions` and click **Allow**. Notes and Freeform also need one drag into Full Disk Access, and Gesher opens that window for you. Restart your AI app. [Permissions](docs/permissions.md) · [Other AI apps](docs/clients.md)
 
-```text
-Install Gesher on my Mac by following https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/docs/install.md
-```
+> [!NOTE]
+> **Requirements & trust**
+> - Apple silicon Mac with macOS 26 or later; tested on macOS 27. Gesher uses private frameworks Apple doesn't document for third-party use, so a macOS update can break parts of it; `gesher doctor` shows what is affected. Experimental and maintained: [report breakage](https://github.com/EphraimElgrabli/gesher/issues/new/choose).
+> - The installer needs no `sudo`. It installs into `~/.local` ([layout](https://github.com/EphraimElgrabli/gesher/blob/74f51d529b31a1b35c1e6f993f2c2ef235fad376/scripts/install.sh#L4-L7)), adds one PATH line to your shell profile ([code](https://github.com/EphraimElgrabli/gesher/blob/74f51d529b31a1b35c1e6f993f2c2ef235fad376/install.sh#L131-L147)), may create a code-signing certificate in your login keychain so permissions survive updates, which asks for your password ([code](https://github.com/EphraimElgrabli/gesher/blob/74f51d529b31a1b35c1e6f993f2c2ef235fad376/scripts/create-signing-identity.sh#L51)), and edits only the `gesher-*` entries of the AI apps you pick, backing each file up first ([code](https://github.com/EphraimElgrabli/gesher/blob/74f51d529b31a1b35c1e6f993f2c2ef235fad376/scripts/connect.sh#L311-L320)).
+> - The download is checked against its published SHA-256 before anything is installed ([code](https://github.com/EphraimElgrabli/gesher/blob/74f51d529b31a1b35c1e6f993f2c2ef235fad376/install.sh#L121-L129)).
+> - Gesher never writes Apple's databases directly: every change goes through the app's own frameworks and is read back to check it.
 
 ## Try it
 
-> *"Turn my Lisbon trip note into a packing list in Reminders, due the day before the flight."*
+- *"Plan my Friday: check the weather, find a free hour for a run, and put my errands in a 'Friday' section of my Errands list."*
+- *"Turn my Lisbon trip note into a packing list in Reminders, due the day before the flight, and add a Passport row to the note's packing table."*
+- *"Which of my Freeform boards mentions the venue? Add today's agenda to it as a text box."*
+- *"Make a smart list of everything tagged #home that's due this week."*
+- *"Will it rain before my 6 pm run? If so, find a café within a 5-minute walk of the office instead."*
 
-Your agent reads the note and creates the reminders. With iCloud, they show up on your iPhone too.
+With iCloud, the changes show up on your iPhone too.
 
 ## Why Gesher
 
@@ -64,6 +76,22 @@ I built Gesher for my own work. I wanted to stay in Apple's apps instead of addi
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/freeform-dark.png"><img src="docs/assets/apps/freeform-light.png" width="32" alt=""></picture> | **Freeform** | search every board, create boards, add text, links, images and files | [6](apps/freeform/README.md) |
 
 Every app is also a command-line tool, for example `calendar-cli agenda tomorrow`. Each app's README lists its commands.
+
+## How it compares
+
+Other good projects cover some of the same apps. Checked against each project's README and repository on 17 November 2026; corrections are welcome in an [issue](https://github.com/EphraimElgrabli/gesher/issues/new/choose).
+
+| | Reminders sections & smart lists | Notes tags & tables | Freeform | Weather / Maps | Apps can stay closed | Install | Maintained |
+|---|:-:|:-:|:-:|:-:|:-:|---|:-:|
+| **Gesher** | ✓ | ✓ | ✓ | ✓ / ✓ | ✓ | `.mcpb` per app, installer, or ask your agent | ✓ |
+| [apple-mcp](https://github.com/supermemoryai/apple-mcp) | — | — | — | — / ✓ | — | `.dxt`, `npx`, `bunx` | — (archived August 2025) |
+| [mcp-server-apple-events](https://github.com/FradSer/mcp-server-apple-events) | — | — | — | — / — | ✓ | `npx` | ✓ |
+| [apple-notes-mcp](https://github.com/sweetrb/apple-notes-mcp) | — | ✓ | — | — / — | — | `npx`, Claude Code plugin | ✓ |
+| [mcp-ical](https://github.com/Omar-V2/mcp-ical) | — | — | — | — / — | ✓ | `git clone` + `uv` | — (last commit April 2025) |
+| [Claude's Apple Notes connector](https://claude.com/connectors/read-and-write-apple-notes) | — | — | — | — / — | not stated | one click in Claude's directory | ✓ |
+
+- **What they do that Gesher doesn't:** apple-mcp also covers Messages and Mail, and its Maps tools can save favorites and guides (Gesher's Maps is read-only). mcp-server-apple-events covers Reminders and Calendar with priorities, tags and subtasks. apple-notes-mcp is Notes only and goes deeper there in places (exports, audio transcripts, a query language); it does tags, checklists and tables through Apple Shortcuts and AppleScript. mcp-ical covers Calendar. Claude's connector lists, reads, adds and updates notes.
+- **Apps can stay closed:** AppleScript-based servers (apple-mcp, apple-notes-mcp) drive the app, so macOS opens it. EventKit-based servers (mcp-server-apple-events, mcp-ical) and Gesher don't need the app running; Gesher opens Freeform in the background only to add content to a board.
 
 ## Good to know
 
