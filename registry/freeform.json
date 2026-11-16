@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.EphraimElgrabli/gesher-freeform",
+  "title": "Gesher Freeform",
+  "description": "Apple Freeform on macOS: read and search boards, create boards, add text, links and files.",
+  "repository": {
+    "url": "https://github.com/EphraimElgrabli/gesher",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.0.0/gesher-freeform-1.0.0.mcpb",
+      "fileSha256": "1cf4f663dfa1a01cce4f0070b42a655ceb73f931888e58822b2ddc8c4cd73437",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

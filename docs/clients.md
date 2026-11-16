@@ -119,6 +119,17 @@ servers):
 }
 ```
 
+## MCP Registry and MCP Bundles
+
+Each Mac app is also listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as
+`io.github.EphraimElgrabli/gesher-<app>`, packaged as an MCP Bundle (`gesher-<app>-<version>.mcpb`
+on the [release page](https://github.com/EphraimElgrabli/gesher/releases/latest)). AI apps that
+install bundles, such as Claude Desktop, run the server from the bundle. A bundle holds one app's
+CLI only: macOS asks for that app's permission again after each update, and there is no `gesher`
+command. For every Mac app, kept permissions and updates, use the installer instead.
+Maintainers: `scripts/package-mcpb.py dist/gesher-<version>-macos-arm64.tar.gz` builds the bundles
+from a release archive and rewrites `registry/<app>.json` with their SHA-256.
+
 ## Anything else
 
 Each `<app>-cli mcp` is a standard MCP server over stdio. Give your app the absolute path: AI apps

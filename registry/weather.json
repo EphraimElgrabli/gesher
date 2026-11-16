@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.EphraimElgrabli/gesher-weather",
+  "title": "Gesher Weather",
+  "description": "Apple Weather on macOS: forecasts, next-hour rain, severe-weather alerts, air quality, places.",
+  "repository": {
+    "url": "https://github.com/EphraimElgrabli/gesher",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.0.0/gesher-weather-1.0.0.mcpb",
+      "fileSha256": "6068e462132e5ca5303bd5a448e0598315705b46063b939dc59ae664c33a4c88",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

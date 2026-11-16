@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.EphraimElgrabli/gesher-calendar",
+  "title": "Gesher Calendar",
+  "description": "Apple Calendar on macOS: agenda, free time, events, repeating events, alerts and invitations.",
+  "repository": {
+    "url": "https://github.com/EphraimElgrabli/gesher",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.0.0/gesher-calendar-1.0.0.mcpb",
+      "fileSha256": "23545e20185aafc4333d24c0b92e1537691b3392cea8332a920a7c6c8e00ffa2",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

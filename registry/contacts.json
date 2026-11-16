@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.EphraimElgrabli/gesher-contacts",
+  "title": "Gesher Contacts",
+  "description": "Apple Contacts on macOS: search by name, phone or email, edit cards, groups, birthdays, vCard.",
+  "repository": {
+    "url": "https://github.com/EphraimElgrabli/gesher",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.0.0/gesher-contacts-1.0.0.mcpb",
+      "fileSha256": "a685babe73e9532350b1010e282441eb2e6fcaae2df613ac6a00dfbca04656d8",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
