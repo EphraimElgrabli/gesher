@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/EphraimElgrabli/gesher/discussions
+    about: Ask, share your setup, or discuss an idea before opening an issue.
+  - name: Security vulnerability
+    url: https://github.com/EphraimElgrabli/gesher/security/advisories/new
+    about: Report privately, please don't open a public issue.

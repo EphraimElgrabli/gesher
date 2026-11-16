@@ -250,10 +250,10 @@ Mehr dazu: [Architektur](../architecture.md) · [Berechtigungen](../permissions.
 
 ## Über dieses Projekt
 
-Gesher ist ein persönliches Projekt, geteilt so, wie es ist. Es ist experimentell, und es gibt keinen
-Support: Issues und Pull Requests sind geschlossen, damit es klein bleibt. Du bist herzlich eingeladen,
-es zu forken und zu deinem eigenen zu machen. Sicherheitsmeldungen sind über
-[private Meldung](../../SECURITY.md) willkommen.
+Gesher ist experimentell und wird gepflegt. Fehlerberichte sind willkommen, besonders wenn ein macOS-Update
+etwas kaputt macht: öffne ein [Issue](https://github.com/EphraimElgrabli/gesher/issues/new/choose) mit deiner macOS-Version, der App und der Ausgabe von
+`gesher doctor`. Pull Requests sind willkommen, werden aber langsam geprüft. Fragen und Ideen gehören in die
+[Discussions](https://github.com/EphraimElgrabli/gesher/discussions). Sicherheitsmeldungen bitte über die [private Meldung](../../SECURITY.md).
 
 Wenn Gesher deinen Mac ein bisschen magischer macht, hilft ein ⭐ anderen, es zu finden.
 

@@ -244,9 +244,9 @@ Mac의 각 앱마다 작은 명령줄 도구가 있고, 이 도구는 동시에 
 
 ## 이 프로젝트에 대해
 
-Gesher는 개인 프로젝트로, 있는 그대로 공유됩니다. 실험적이며 지원은 제공하지 않습니다. 작게 유지하기 위해 issue와
-pull request는 닫혀 있어요. 대신 언제든 포크해서 당신만의 것으로 만들어 보세요. 보안 관련 제보는
-[비공개 제보](../../SECURITY.md)로 환영합니다.
+Gesher는 실험적이지만 유지보수되고 있어요. 버그 제보를 환영합니다. 특히 macOS 업데이트로 무언가 고장 났다면 macOS 버전,
+앱, `gesher doctor` 출력과 함께 [issue](https://github.com/EphraimElgrabli/gesher/issues/new/choose)를 열어 주세요. pull request도 환영하지만 리뷰는 천천히 진행됩니다. 질문과
+아이디어는 [Discussions](https://github.com/EphraimElgrabli/gesher/discussions)에 남겨 주세요. 보안 제보는 [비공개 제보](../../SECURITY.md)로 보내 주세요.
 
 Gesher 덕분에 당신의 Mac이 조금 더 마법 같아졌다면, ⭐ 하나가 다른 사람들이 이 프로젝트를 찾는 데 큰 도움이 됩니다.
 

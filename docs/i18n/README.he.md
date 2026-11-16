@@ -247,9 +247,9 @@ Gesher ומנתק אותו מאפליקציות ה-AI שלכם.
 
 ## על הפרויקט
 
-Gesher הוא פרויקט אישי, ומשותף כמו שהוא. הוא ניסיוני ואין לו תמיכה: ה-issues וה-pull requests סגורים
-כדי שיישאר קטן. אתם מוזמנים בחום לעשות לו fork ולהפוך אותו לשלכם. דיווחי אבטחה יתקבלו בברכה דרך
-[דיווח פרטי](../../SECURITY.md).
+Gesher ניסיוני ומתוחזק. דיווחי באגים יתקבלו בברכה, במיוחד כשעדכון של macOS שובר משהו: פתחו
+[issue](https://github.com/EphraimElgrabli/gesher/issues/new/choose) עם גרסת ה-macOS, האפליקציה והפלט של `gesher doctor`. גם pull requests מתקבלים בברכה, אבל
+נבדקים לאט. שאלות ורעיונות ב-[Discussions](https://github.com/EphraimElgrabli/gesher/discussions). דיווחי אבטחה דרך [דיווח פרטי](../../SECURITY.md).
 
 אם Gesher הופך את ה-Mac שלכם לקצת יותר קסום, ⭐ עוזר לאחרים למצוא אותו.
 

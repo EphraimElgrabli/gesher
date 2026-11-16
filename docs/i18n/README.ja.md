@@ -245,9 +245,10 @@ Mac の各アプリには小さなコマンドラインツールが用意され�
 
 ## このプロジェクトについて
 
-Gesher は個人プロジェクトで、現状のまま公開しています。実験的なもので、サポートはありません。小さく保つため、issue と
-pull request は受け付けていません。ぜひフォークして、あなただけのものにしてください。セキュリティに関する報告は
-[非公開の報告](../../SECURITY.md)から歓迎します。
+Gesher は実験的ですが、メンテナンスされています。バグ報告は歓迎します。特に macOS のアップデートで動かなくなったときは、
+macOS のバージョン、アプリ、`gesher doctor` の出力を添えて [issue](https://github.com/EphraimElgrabli/gesher/issues/new/choose) を作成してください。pull request も歓迎しますが、
+レビューには時間がかかります。質問やアイデアは [Discussions](https://github.com/EphraimElgrabli/gesher/discussions) へ。セキュリティに関する報告は
+[非公開の報告](../../SECURITY.md)からお願いします。
 
 Gesher であなたの Mac がちょっと魔法みたいになったら、⭐ をひとつ。ほかの人が見つけやすくなります。
 

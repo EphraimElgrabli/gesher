@@ -1,0 +1,26 @@
+name: Feature request
+description: Something you'd like your agent to be able to do in an Apple app.
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: app
+    attributes:
+      label: App
+      options: [Reminders, Calendar, Contacts, Notes, Maps, Weather, Freeform, Installer / gesher connect, A new app, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: want
+    attributes:
+      label: What you want to do
+      description: The task in your own words, ideally as the prompt you'd give your agent.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
+      description: What you do today instead, and how often.
+  - type: markdown
+    attributes:
+      value: Some features are reserved by macOS for Apple's own apps; see [Limitations](https://github.com/EphraimElgrabli/gesher/blob/main/docs/limitations.md).

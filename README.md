@@ -21,7 +21,7 @@
 
 ## Install
 
-Gesher is experimental and shared as is, with no support. Connect only the apps you need, and review what your agent changes.
+Gesher is experimental and maintained. Connect only the apps you need, and review what your agent changes.
 
 Requires an Apple silicon Mac running macOS 26 or later. Tested on macOS 27; macOS 26 should work but hasn't been tested yet. The binaries are not notarized: the installer signs them locally and may ask for your password to create a signing certificate. `GESHER_SIGN_IDENTITY=-` skips the certificate, but then you grant access again after each update.
 
@@ -75,4 +75,4 @@ Every app is also a command-line tool, for example `calendar-cli agenda tomorrow
 
 ---
 
-I'm Ephraim Elgrabli. I built Gesher for my own work and share it under [GPL-3.0](LICENSE). Gesher (גשר) is Hebrew for *bridge*. Issues and pull requests are closed; forks are welcome, and security reports go through [private reporting](SECURITY.md). Not affiliated with Apple Inc. · [Legal notes](docs/legal.md)
+I'm Ephraim Elgrabli. I built Gesher for my own work and share it under [GPL-3.0](LICENSE). Gesher (גשר) is Hebrew for *bridge*. Bug reports are welcome, especially after macOS updates ([open an issue](https://github.com/EphraimElgrabli/gesher/issues/new/choose)); pull requests are welcome but reviewed slowly ([CONTRIBUTING](CONTRIBUTING.md)); questions go in [Discussions](https://github.com/EphraimElgrabli/gesher/discussions); security reports go through [private reporting](SECURITY.md). Not affiliated with Apple Inc. · [Legal notes](docs/legal.md)

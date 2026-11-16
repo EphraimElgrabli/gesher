@@ -254,9 +254,10 @@ En savoir plus : [architecture](../architecture.md) · [autorisations](../permis
 
 ## À propos de ce projet
 
-Gesher est un projet personnel, partagé tel quel. Il est expérimental et sans support : les issues et les
-pull requests sont fermées pour qu'il reste petit. Vous êtes chaleureusement invité à le forker et à vous
-l'approprier. Les signalements de sécurité sont les bienvenus via le [signalement privé](../../SECURITY.md).
+Gesher est expérimental et maintenu. Les rapports de bug sont les bienvenus, surtout quand une mise à jour
+de macOS casse quelque chose : ouvrez une [issue](https://github.com/EphraimElgrabli/gesher/issues/new/choose) avec votre version de macOS, l'app et la sortie de
+`gesher doctor`. Les pull requests sont bienvenues, mais relues lentement. Questions et idées : les
+[Discussions](https://github.com/EphraimElgrabli/gesher/discussions). Les signalements de sécurité passent par le [signalement privé](../../SECURITY.md).
 
 Si Gesher rend votre Mac un peu plus magique, une ⭐ aide d'autres personnes à le découvrir.
 

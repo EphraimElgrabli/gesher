@@ -237,8 +237,9 @@ Mac 上完成签名。[安全说明](../../SECURITY.md)介绍了 Gesher 的权�
 
 ## 关于本项目
 
-Gesher 是一个个人项目，按原样分享。它仍处于实验阶段，不提供支持：为了保持项目小巧，issue 和 pull request
-均已关闭。非常欢迎你 fork 一份，把它变成你自己的。安全问题欢迎通过[私密报告](../../SECURITY.md)提交。
+Gesher 仍处于实验阶段，但会持续维护。欢迎报告 bug，尤其是 macOS 更新导致的故障：请附上 macOS 版本、应用和
+`gesher doctor` 的输出，提交 [issue](https://github.com/EphraimElgrabli/gesher/issues/new/choose)。也欢迎 pull request，但审核会比较慢。问题和想法请发到
+[Discussions](https://github.com/EphraimElgrabli/gesher/discussions)。安全问题请通过[私密报告](../../SECURITY.md)提交。
 
 如果 Gesher 让你的 Mac 多了一点魔法，点个 ⭐ 就能帮更多人发现它。
 

@@ -1,6 +1,6 @@
 # Security
 
-Gesher is an experiment shared as is, without support, but security reports are welcome.
+Gesher is experimental and maintained. Security reports are welcome and handled privately.
 
 If you find a vulnerability — for example a way for an MCP client or a crafted input to read or change
 data it wasn't asked to, or to run code — report it privately through

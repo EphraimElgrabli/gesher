@@ -1,6 +1,6 @@
 # Gesher
 
-> Gesher gives AI agents native access to the apps on a Mac: Reminders, Calendar, Contacts, Notes, Maps, Weather and Freeform. Each app is a local command-line tool and an MCP server over stdio (117 tools, plus `doctor` and `permissions` diagnostics). Gesher itself runs entirely on the Mac: no Gesher servers, accounts or telemetry. macOS on Apple silicon; tested on macOS 27. GPL-3.0. Experimental and shared as is: no support; issues and pull requests are closed.
+> Gesher gives AI agents native access to the apps on a Mac: Reminders, Calendar, Contacts, Notes, Maps, Weather and Freeform. Each app is a local command-line tool and an MCP server over stdio (117 tools, plus `doctor` and `permissions` diagnostics). Gesher itself runs entirely on the Mac: no Gesher servers, accounts or telemetry. macOS on Apple silicon; tested on macOS 27. GPL-3.0. Experimental and maintained: bug reports (especially after macOS updates) and pull requests are welcome on GitHub.
 
 To set Gesher up for your user, follow docs/install.md. In short: `curl -fsSL https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/install.sh | bash -s -- --no-connect`, then `gesher connect --list`, ask the user which AI apps to connect, `gesher connect <those apps>`, `gesher permissions`, `gesher doctor`.
 
