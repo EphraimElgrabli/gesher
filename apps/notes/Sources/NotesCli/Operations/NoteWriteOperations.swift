@@ -356,6 +356,77 @@ enum SetTableCell: AgentOperation {
     }
 }
 
+/// Inserts a row or column into an existing table (shared by table add-row and table add-column).
+enum TableLineInsert {
+    struct Input: Decodable, Sendable {
+        var note: String
+        var table: Int
+        var at: Int?
+        var cells: [String]?
+        var ifRevision: String
+    }
+
+    static func params(_ axis: NoteTableAxis) -> [Param] {
+        [
+            .string("note", "Note title or id.", required: true, positional: true),
+            .integer("table", "Which table in the note, in body order.", default: 1, min: 1),
+            .integer(
+                "at",
+                "Position the new \(axis.rawValue) takes (1 = first). Default: after the last \(axis.rawValue).",
+                min: 1),
+            .list(
+                "cells",
+                axis == .row
+                    ? "Text for the new row's cells, left to right; missing cells stay empty."
+                    : "Text for the new column's cells, top to bottom; missing cells stay empty."),
+            .string("ifRevision", "Revision from note get; required.", required: true),
+        ]
+    }
+
+    static func run(_ axis: NoteTableAxis, _ input: Input, _ context: NotesContext) throws -> NoteRef {
+        let note = try context.writableNote(input.note)
+        let tables = try context.read.fetchNote(id: note.id).tables ?? []
+        guard input.table <= tables.count else {
+            throw AgentError.invalid("The note has \(tables.count) table(s).", hint: "Read it with note get.")
+        }
+        return context.ref(
+            try context.write.insertTableLine(
+                id: note.id, tableID: tables[input.table - 1].id, axis: axis, index: input.at.map { $0 - 1 },
+                values: input.cells ?? [], ifRevision: input.ifRevision))
+    }
+}
+
+enum AddTableRow: AgentOperation {
+    typealias Input = TableLineInsert.Input
+    static let path = ["table", "add-row"]
+    static let summary =
+        "Add a row to an existing table (at the end, or at a position) with optional cell text; the rest of the note is kept."
+    static let effect = OperationEffect.write
+    static let params = TableLineInsert.params(.row)
+    static let examples = [
+        "table add-row 'Lisbon trip' --cells Passport --cells '' --if-revision 3f2a",
+        "table add-row Budget --table 2 --at 2 --cells Rent --cells 1200 --if-revision 3f2a",
+    ]
+
+    static func run(_ input: Input, _ context: NotesContext) throws -> NoteRef {
+        try TableLineInsert.run(.row, input, context)
+    }
+}
+
+enum AddTableColumn: AgentOperation {
+    typealias Input = TableLineInsert.Input
+    static let path = ["table", "add-column"]
+    static let summary =
+        "Add a column to an existing table (at the end, or at a position) with optional cell text; the rest of the note is kept."
+    static let effect = OperationEffect.write
+    static let params = TableLineInsert.params(.column)
+    static let examples = ["table add-column Budget --cells March --if-revision 3f2a"]
+
+    static func run(_ input: Input, _ context: NotesContext) throws -> NoteRef {
+        try TableLineInsert.run(.column, input, context)
+    }
+}
+
 enum AddTags: AgentOperation {
     struct Input: Decodable, Sendable {
         var note: String

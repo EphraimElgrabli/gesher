@@ -13,7 +13,7 @@ A Mac with Apple silicon and macOS 26 or later. Gesher is tested on macOS 27; ma
 AppleScript sees only what each app chose to script, needs the app open, and asks for Automation access. Gesher calls the frameworks the apps are built on: it works with the apps closed and reaches what scripting can't, such as Reminders sections and smart lists, Notes tags and tables, and Freeform boards.
 
 **Why use private frameworks at all?**
-Gesher calls the frameworks Apple's apps are built on, including private frameworks Apple doesn't document for third-party use; a macOS update may break them. It uses them because much of what Gesher does has no public API: 62 of its 117 tools do something no public Apple framework offers, including every Notes and Freeform tool. The [tool-by-tool comparison](public-apis.md) lists each tool, its public alternative if there is one, and Apple's documentation.
+Gesher calls the frameworks Apple's apps are built on, including private frameworks Apple doesn't document for third-party use; a macOS update may break them. It uses them because much of what Gesher does has no public API: 64 of its 119 tools do something no public Apple framework offers, including every Notes and Freeform tool. The [tool-by-tool comparison](public-apis.md) lists each tool, its public alternative if there is one, and Apple's documentation.
 
 **What can't it do?**
 Contact notes, and some Freeform edits (shapes, sticky notes, renaming boards). Maps is read-only. [Full list](limitations.md).

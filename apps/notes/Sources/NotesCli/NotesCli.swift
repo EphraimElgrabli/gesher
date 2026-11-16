@@ -47,6 +47,8 @@ enum NotesApp {
                 AnyOperation(CheckChecklistItems.self),
                 AnyOperation(UncheckChecklistItems.self),
                 AnyOperation(SetTableCell.self),
+                AnyOperation(AddTableRow.self),
+                AnyOperation(AddTableColumn.self),
                 AnyOperation(ListTags.self),
                 AnyOperation(AddTags.self),
                 AnyOperation(CreateSmartFolder.self),

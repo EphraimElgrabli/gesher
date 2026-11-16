@@ -41,6 +41,8 @@ notes-cli checklist list Groceries
 notes-cli checklist add --note Groceries milk eggs [--checked] [--top]
 notes-cli checklist check|uncheck --note Groceries milk 3   # by text or number
 notes-cli table set-cell Budget --row 2 --column 3 --text 120 --if-revision REV
+notes-cli table add-row 'Lisbon trip' --cells Passport --if-revision REV        # append; --at 2 inserts
+notes-cli table add-column Budget --cells March --if-revision REV
 notes-cli tag list
 notes-cli tag add --note 'Paris trip' travel ideas         # real #tags
 notes-cli smart-folder create Travel --tags travel --match any

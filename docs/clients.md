@@ -20,7 +20,7 @@ Mac app you want: `reminders`, `calendar`, `contacts`, `notes`, `maps`, `weather
 `freeform`.
 
 > [!NOTE]
-> All seven Mac apps together add 129 tools: 117, plus a `doctor` tool in every server and a
+> All seven Mac apps together add 131 tools: 119, plus a `doctor` tool in every server and a
 > `permissions` tool in the five that need a macOS permission. Some AI apps work best with fewer, so `gesher connect` gives Cursor and Windsurf only
 > Reminders, Calendar and Notes unless you choose: `gesher connect cursor --apps reminders,maps,weather`.
 

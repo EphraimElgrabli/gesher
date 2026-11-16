@@ -2,6 +2,11 @@ import AppKit
 import GesherPlatform
 import ObjCRuntimeSupport
 
+/// A table row or column.
+public enum NoteTableAxis: String, Sendable {
+    case row, column
+}
+
 /// Populate a native Notes table and embed its attachment in the note text.
 enum NoteTable {
     static func read(from text: NSAttributedString, note: AnyObject, runtime: NotesRuntime) throws
@@ -78,6 +83,53 @@ enum NoteTable {
             method_getImplementation(method),
             to: (@convention(c) (AnyObject, Selector, NSAttributedString, UInt, UInt) -> Void).self)
         setCell(table, selector, NSAttributedString(string: text), UInt(column), UInt(row))
+        try DynamicRuntime.shared.sendVoid(model, selector: "writeMergeableData")
+        try DynamicRuntime.shared.sendVoid(attachment, selector: "saveMergeableDataIfNeeded")
+    }
+
+    /// Inserts one empty row or column at `index` (0-based; `count` appends) of an existing table,
+    /// then fills it with `values` (first cells, in order). Uses the table's own mergeable model,
+    /// as editing the table in Notes does.
+    static func insertLine(
+        id: String, axis: NoteTableAxis, index: Int, values: [String], note: AnyObject, runtime: NotesRuntime
+    ) throws {
+        try runtime.loadTableSupport()
+        guard
+            let attachment = ObjCSendIdIdArg(
+                note, try NativeProperty.selector(note, "attachmentWithIdentifier:"), id as NSString) as AnyObject?,
+            runtime.boolValue(from: attachment, selectors: ["isTable"]) == true,
+            let model = runtime.objectValue(from: attachment, selectors: ["tableModel"]),
+            let table = runtime.objectValue(from: model, selectors: ["table"])
+        else { throw PlatformError.objectNotFound(type: "table", id: id) }
+        guard runtime.objectValue(from: note, selectors: ["currentReplicaID"]) != nil else {
+            throw PlatformError.saveFailed("Notes did not provide a replica identifier for table editing.")
+        }
+        let (countName, insertName) =
+            axis == .row ? ("rowCount", "insertRowAtIndex:") : ("columnCount", "insertColumnAtIndex:")
+        let before = ObjCSendInteger(table, try NativeProperty.selector(table, countName))
+        guard index >= 0, index <= before else {
+            throw PlatformError.invalidArgument("The insert position is outside the table.")
+        }
+        let insertSelector = NSSelectorFromString(insertName)
+        guard let insertMethod = class_getInstanceMethod(type(of: table), insertSelector) else {
+            throw PlatformError.missingSelector(className: "ICTable", selector: insertName)
+        }
+        let insert = unsafeBitCast(
+            method_getImplementation(insertMethod), to: (@convention(c) (AnyObject, Selector, UInt) -> AnyObject?).self)
+        guard insert(table, insertSelector, UInt(index)) != nil,
+            ObjCSendInteger(table, try NativeProperty.selector(table, countName)) == before + 1
+        else { throw PlatformError.saveFailed("Notes did not insert the table \(axis.rawValue).") }
+        let cellSelector = NSSelectorFromString("setAttributedString:columnIndex:rowIndex:")
+        guard let cellMethod = class_getInstanceMethod(type(of: table), cellSelector) else {
+            throw PlatformError.missingSelector(className: "ICTable", selector: NSStringFromSelector(cellSelector))
+        }
+        let setCell = unsafeBitCast(
+            method_getImplementation(cellMethod),
+            to: (@convention(c) (AnyObject, Selector, NSAttributedString, UInt, UInt) -> Void).self)
+        for (offset, value) in values.enumerated() where !value.isEmpty {
+            let (column, row) = axis == .row ? (offset, index) : (index, offset)
+            setCell(table, cellSelector, NSAttributedString(string: value), UInt(column), UInt(row))
+        }
         try DynamicRuntime.shared.sendVoid(model, selector: "writeMergeableData")
         try DynamicRuntime.shared.sendVoid(attachment, selector: "saveMergeableDataIfNeeded")
     }

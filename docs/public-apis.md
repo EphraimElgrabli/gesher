@@ -18,11 +18,11 @@ Every Gesher tool, and whether a third-party app could do the same job through a
 | Reminders | 28 | 5 | 5 | 18 |
 | Calendar | 17 | 12 | 3 | 2 |
 | Contacts | 21 | 17 | 1 | 3 |
-| Notes | 29 | 0 | 0 | 29 |
+| Notes | 31 | 0 | 0 | 31 |
 | Maps | 6 | 5 | 1 | 0 |
 | Weather | 10 | 5 | 1 | 4 |
 | Freeform | 6 | 0 | 0 | 6 |
-| **Total** | **117** | **44** | **11** | **62** |
+| **Total** | **119** | **44** | **11** | **64** |
 
 ## Every tool
 
@@ -117,6 +117,8 @@ Every Gesher tool, and whether a third-party app could do the same job through a
 | Notes | `notes-cli checklist check` | private | no | no framework, and not in the Notes AppleScript dictionary (no tags, tables, checklists, pins, smart folders, Recently Deleted as objects) |  | `apps/notes/Sources/NotesCli/Operations/ChecklistOperations.swift` |
 | Notes | `notes-cli checklist uncheck` | private | no | no framework, and not in the Notes AppleScript dictionary (no tags, tables, checklists, pins, smart folders, Recently Deleted as objects) |  | `apps/notes/Sources/NotesCli/Operations/ChecklistOperations.swift` |
 | Notes | `notes-cli table set-cell` | private | no | no framework, and not in the Notes AppleScript dictionary (no tags, tables, checklists, pins, smart folders, Recently Deleted as objects) |  | `apps/notes/Sources/NotesCli/Operations/NoteWriteOperations.swift` |
+| Notes | `notes-cli table add-row` | private | no | no framework, and not in the Notes AppleScript dictionary (no tags, tables, checklists, pins, smart folders, Recently Deleted as objects) |  | `apps/notes/Sources/NotesCli/Operations/NoteWriteOperations.swift` |
+| Notes | `notes-cli table add-column` | private | no | no framework, and not in the Notes AppleScript dictionary (no tags, tables, checklists, pins, smart folders, Recently Deleted as objects) |  | `apps/notes/Sources/NotesCli/Operations/NoteWriteOperations.swift` |
 | Notes | `notes-cli tag list` | private | no | no framework, and not in the Notes AppleScript dictionary (no tags, tables, checklists, pins, smart folders, Recently Deleted as objects) |  | `apps/notes/Sources/NotesCli/Operations/NoteReadOperations.swift` |
 | Notes | `notes-cli tag add` | private | no | no framework, and not in the Notes AppleScript dictionary (no tags, tables, checklists, pins, smart folders, Recently Deleted as objects) |  | `apps/notes/Sources/NotesCli/Operations/NoteWriteOperations.swift` |
 | Notes | `notes-cli smart-folder create` | private | no | no framework, and not in the Notes AppleScript dictionary (no tags, tables, checklists, pins, smart folders, Recently Deleted as objects) |  | `apps/notes/Sources/NotesCli/Operations/FolderOperations.swift` |

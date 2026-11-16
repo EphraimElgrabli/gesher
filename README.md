@@ -10,7 +10,7 @@
 
 <p align="center"><b>Let Claude, Codex or Cursor write to Apple Notes, Reminders, Calendar and Freeform: Notes tables and tags, Reminders sections and smart lists, and Freeform boards.</b></p>
 
-<p align="center">One install for seven apps, with Contacts, Weather and Maps too. The apps can stay closed. A native Swift CLI and MCP server per app, 117 tools.</p>
+<p align="center">One install for seven apps, with Contacts, Weather and Maps too. The apps can stay closed. A native Swift CLI and MCP server per app, 119 tools.</p>
 
 <p align="center">
   <a href="https://github.com/EphraimElgrabli/gesher/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/EphraimElgrabli/gesher?style=flat-square&label=release"></a>
@@ -23,7 +23,7 @@
 
 ## Install
 
-- **Claude Desktop, one app at a time:** download `gesher-<app>-1.0.0.mcpb` from the [latest release](https://github.com/EphraimElgrabli/gesher/releases/latest) and open it; Claude Desktop installs it as an extension. Each bundle holds one app, and macOS asks for its permission again after each update.
+- **Claude Desktop, one app at a time:** download `gesher-<app>-1.1.0.mcpb` from the [latest release](https://github.com/EphraimElgrabli/gesher/releases/latest) and open it; Claude Desktop installs it as an extension. Each bundle holds one app, and macOS asks for its permission again after each update.
 - **Let your agent do it:** paste this into Claude Code, Codex or Cursor:
 
   ```text
@@ -59,7 +59,7 @@ With iCloud, the changes show up on your iPhone too.
 
 I built Gesher for my own work. I wanted to stay in Apple's apps instead of adding more apps and subscriptions, and to finally have the assistant I wanted Siri to be. The technical challenge interested me too.
 
-- **Features the public APIs don't have.** Gesher calls the frameworks Apple's apps are built on, including private frameworks Apple doesn't document for third-party use (a macOS update may break them). 62 of its 117 tools do something no public Apple framework offers, like Reminders sections and smart lists, Notes tags and tables, and Freeform boards. [Tool-by-tool comparison](docs/public-apis.md) · [How it works](docs/architecture.md)
+- **Features the public APIs don't have.** Gesher calls the frameworks Apple's apps are built on, including private frameworks Apple doesn't document for third-party use (a macOS update may break them). 64 of its 119 tools do something no public Apple framework offers, like Reminders sections and smart lists, Notes tags and tables, and Freeform boards. [Tool-by-tool comparison](docs/public-apis.md) · [How it works](docs/architecture.md)
 - **The apps can stay closed.** No AppleScript, no Shortcuts, no clicking through windows. Freeform opens quietly in the background when an agent adds to a board.
 - **It checks its work.** Every write is read back. Bulk deletes are backed up first, deleted reminders and notes go to Recently Deleted, and Notes edits can be tied to the version the agent read.
 
@@ -70,7 +70,7 @@ I built Gesher for my own work. I wanted to stay in Apple's apps instead of addi
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/reminders-dark.png"><img src="docs/assets/apps/reminders-light.png" width="32" alt=""></picture> | **Reminders** | add, complete and organize tasks: lists, sections, tags, subtasks, smart lists | [28](apps/reminders/README.md) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/calendar-dark.png"><img src="docs/assets/apps/calendar-light.png" width="32" alt=""></picture> | **Calendar** | read your agenda, find free time, create and move events, answer invitations | [17](apps/calendar/README.md) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/contacts-dark.png"><img src="docs/assets/apps/contacts-light.png" width="32" alt=""></picture> | **Contacts** | find people by name, phone or email, and update cards | [21](apps/contacts/README.md) |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/notes-dark.png"><img src="docs/assets/apps/notes-light.png" width="32" alt=""></picture> | **Notes** | read and write notes as Markdown, with checklists, tables and tags | [29](apps/notes/README.md) |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/notes-dark.png"><img src="docs/assets/apps/notes-light.png" width="32" alt=""></picture> | **Notes** | read and write notes as Markdown, with checklists, tables and tags | [31](apps/notes/README.md) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/maps-dark.png"><img src="docs/assets/apps/maps-light.png" width="32" alt=""></picture> | **Maps** | search places, see opening hours, plan routes and travel times (read-only) | [6](apps/maps/README.md) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/weather-dark.png"><img src="docs/assets/apps/weather-light.png" width="32" alt=""></picture> | **Weather** | check the forecast hour by hour, air quality and severe-weather alerts; minute-by-minute rain in some countries | [10](apps/weather/README.md) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/freeform-dark.png"><img src="docs/assets/apps/freeform-light.png" width="32" alt=""></picture> | **Freeform** | search every board, create boards, add text, links, images and files | [6](apps/freeform/README.md) |

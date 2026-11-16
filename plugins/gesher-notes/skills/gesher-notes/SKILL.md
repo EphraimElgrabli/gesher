@@ -55,7 +55,9 @@ the user only if the choice matters). Writes to existing notes need the exact ti
 ## Edit safely
 
 - Checklists: call `checklist_list`, then `checklist_check` or `checklist_uncheck` with the item
-  text or number. A table cell: `table_set_cell` (1-based row and column; needs `ifRevision`).
+  text or number. A table cell: `table_set_cell` (1-based row and column; needs `ifRevision`). A new row or
+  column in an existing table: `table_add_row` / `table_add_column` (`cells` fills it; `at` inserts at a
+  1-based position, default the end; needs `ifRevision`).
 - Renaming the title: `note_update` with `title`. To replace the whole body, pass `markdown`
   (or `document`), `replaceBody: true` and the `ifRevision` you got from `note_get`. Anything
   you leave out of the new body is lost, attachments included, so prefer append, prepend and the

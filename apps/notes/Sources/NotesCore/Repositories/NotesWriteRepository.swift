@@ -274,6 +274,47 @@ public final class NotesWriteRepository {
         return after
     }
 
+    /// Inserts a row or column into an existing table at `index` (0-based; nil appends), filled with
+    /// `values`. Tables stay within the limits Notes tables are created with (100 rows, 20 columns).
+    public func insertTableLine(
+        id: String, tableID: String, axis: NoteTableAxis, index: Int?, values: [String], ifRevision: String
+    ) throws -> NoteSnapshot {
+        let context = try runtime.obtainContext()
+        defer { if context.hasChanges { context.rollback() } }
+        let target = try note(id, context: context)
+        guard try runtime.revision(of: target) == ifRevision else {
+            throw AgentError(
+                code: "revision_conflict", message: "The note changed since it was read.",
+                hint: "Read the note again (note get) and retry with its current revision.")
+        }
+        let before = try readRepository.fetchNote(id: runtime.objectIDString(from: target))
+        guard let tables = before.tables, let selected = tables.firstIndex(where: { $0.id == tableID }) else {
+            throw PlatformError.invalidArgument("Choose an existing table ID from note get.")
+        }
+        let expectedCells = try NoteTableEdit.inserting(
+            axis, at: index, values: values, into: tables[selected].cells)
+        var expected = tables
+        expected[selected] = NoteTableSnapshot(id: tableID, cells: expectedCells)
+        let rows = tables[selected].cells.count
+        let columns = tables[selected].cells.first?.count ?? 0
+        try prepareForEditing(target)
+        try NoteTable.insertLine(
+            id: tableID, axis: axis, index: index ?? (axis == .row ? rows : columns), values: values, note: target,
+            runtime: runtime)
+        ObjCSendVoid(target, NSSelectorFromString("didChangeNoteText"))
+        guard ObjCSendBool(target, NSSelectorFromString("saveNoteData")) else {
+            throw PlatformError.saveFailed("Native table serialization failed.")
+        }
+        ObjCSendVoidId(target, NSSelectorFromString("updateChangeCountWithReason:"), "notes-cli" as NSString)
+        try runtime.save(context: context)
+        let after = try readRepository.fetchNote(id: runtime.objectIDString(from: target))
+        guard after.tables == expected, after.body == before.body, after.formatting == before.formatting else {
+            throw PlatformError.mutationUnverified(
+                type: "note", id: id, reason: "Table edit did not round-trip; inspect before retrying.")
+        }
+        return after
+    }
+
     public func updateNote(id: String, mutation: NoteMutation, document: NoteDocument? = nil, ifRevision: String? = nil)
         throws -> NoteSnapshot
     {
