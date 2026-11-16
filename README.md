@@ -8,9 +8,9 @@
   </picture>
 </p>
 
-<p align="center"><b>Give Claude, Codex or Cursor real access to Apple Reminders, Notes, Calendar and Freeform, including what AppleScript can't reach.</b></p>
+<p align="center"><b>Let Claude, Codex or Cursor write to Apple Notes, Reminders, Calendar and Freeform: Notes tables and tags, Reminders sections and smart lists, and Freeform boards.</b></p>
 
-<p align="center">Reminders sections, smart lists and templates · Notes as Markdown with tags and tables · Freeform boards · Calendar, Contacts, Weather and Maps · works with the apps closed · one native Swift CLI and MCP server per app, 117 tools.</p>
+<p align="center">One install for seven apps, with Contacts, Weather and Maps too. The apps can stay closed. A native Swift CLI and MCP server per app, 117 tools.</p>
 
 <p align="center">
   <a href="https://github.com/EphraimElgrabli/gesher/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/EphraimElgrabli/gesher?style=flat-square&label=release"></a>
@@ -84,14 +84,16 @@ Other good projects cover some of the same apps. Checked against each project's 
 | | Reminders sections & smart lists | Notes tags & tables | Freeform | Weather / Maps | Apps can stay closed | Install | Maintained |
 |---|:-:|:-:|:-:|:-:|:-:|---|:-:|
 | **Gesher** | ✓ | ✓ | ✓ | ✓ / ✓ | ✓ | `.mcpb` per app, installer, or ask your agent | ✓ |
+| [RemCTL](https://github.com/viticci/remctl) | ✓ | — | — | — / — | ✓ | notarized `.dmg`; then `.mcpb` or Claude Code plugin | ✓ |
+| [iMCP](https://github.com/mattt/iMCP) | — | — (reads only) | — | ✓ / ✓ | ✓ | app download or Homebrew | ✓ |
 | [apple-mcp](https://github.com/supermemoryai/apple-mcp) | — | — | — | — / ✓ | — | `.dxt`, `npx`, `bunx` | — (archived August 2025) |
 | [mcp-server-apple-events](https://github.com/FradSer/mcp-server-apple-events) | — | — | — | — / — | ✓ | `npx` | ✓ |
 | [apple-notes-mcp](https://github.com/sweetrb/apple-notes-mcp) | — | ✓ | — | — / — | — | `npx`, Claude Code plugin | ✓ |
 | [mcp-ical](https://github.com/Omar-V2/mcp-ical) | — | — | — | — / — | ✓ | `git clone` + `uv` | — (last commit April 2025) |
 | [Claude's Apple Notes connector](https://claude.com/connectors/read-and-write-apple-notes) | — | — | — | — / — | not stated | one click in Claude's directory | ✓ |
 
-- **What they do that Gesher doesn't:** apple-mcp also covers Messages and Mail, and its Maps tools can save favorites and guides (Gesher's Maps is read-only). mcp-server-apple-events covers Reminders and Calendar with priorities, tags and subtasks. apple-notes-mcp is Notes only and goes deeper there in places (exports, audio transcripts, a query language); it does tags, checklists and tables through Apple Shortcuts and AppleScript. mcp-ical covers Calendar. Claude's connector lists, reads, adds and updates notes.
-- **Apps can stay closed:** AppleScript-based servers (apple-mcp, apple-notes-mcp) drive the app, so macOS opens it. EventKit-based servers (mcp-server-apple-events, mcp-ical) and Gesher don't need the app running; Gesher opens Freeform in the background only to add content to a board.
+- **What they do that Gesher doesn't:** RemCTL is Reminders only and goes further there (rich links, Groceries lists, urgent reminders, a notarized installer, a Reminders workspace in Codex), also through Apple's private ReminderKit. iMCP covers Messages, Mail and current location as well, and reads notes (tables included) from the Notes database without writing them. apple-mcp also covers Messages and Mail, and its Maps tools can save favorites and guides (Gesher's Maps is read-only). mcp-server-apple-events covers Reminders and Calendar with priorities, tags and subtasks. apple-notes-mcp is Notes only and goes deeper there in places (exports, audio transcripts, a query language); it does tags, checklists and tables through Apple Shortcuts and AppleScript. mcp-ical covers Calendar. Claude's connector lists, reads, adds and updates notes.
+- **Apps can stay closed:** AppleScript-based servers (apple-mcp, apple-notes-mcp) drive the app, so macOS opens it. RemCTL, iMCP (whose own menu-bar app runs), the EventKit-based servers (mcp-server-apple-events, mcp-ical) and Gesher don't need the app running; Gesher opens Freeform in the background only to add content to a board.
 
 ## Good to know
 
