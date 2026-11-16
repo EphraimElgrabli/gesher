@@ -205,8 +205,8 @@ actualización.
 <summary><b>¿En qué se diferencia de los servidores MCP basados en AppleScript?</b></summary>
 
 AppleScript solo ve lo que cada app decidió exponer a los scripts, necesita la app abierta y pide acceso
-de Automatización. Gesher llama a los frameworks sobre los que están hechas las apps: es más rápido,
-funciona con las apps cerradas y llega a lo que los scripts no alcanzan, como las secciones y listas
+de Automatización. Gesher llama a los frameworks sobre los que están hechas las apps: funciona
+con las apps cerradas y llega a lo que los scripts no alcanzan, como las secciones y listas
 inteligentes de Reminders, las etiquetas y tablas de Notes, y los tableros de Freeform.
 </details>
 

@@ -204,8 +204,8 @@ Updates einfach erneut.
 <summary><b>Was ist anders als bei MCP-Servern auf AppleScript-Basis?</b></summary>
 
 AppleScript sieht nur, was die jeweilige App für Skripte freigibt, braucht die App geöffnet und fragt nach
-Automation-Zugriff. Gesher nutzt die Frameworks, auf denen die Apps selbst aufbauen: Es ist schneller,
-funktioniert bei geschlossenen Apps und erreicht, was Skripte nicht können, etwa Abschnitte und
+Automation-Zugriff. Gesher nutzt die Frameworks, auf denen die Apps selbst aufbauen: Es funktioniert
+bei geschlossenen Apps und erreicht, was Skripte nicht können, etwa Abschnitte und
 intelligente Listen in Reminders, Tags und Tabellen in Notes und Boards in Freeform.
 </details>
 

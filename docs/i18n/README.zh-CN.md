@@ -196,7 +196,7 @@ Gesher 很谨慎（改动会被验证，批量删除会先备份到 `~/.config/g
 <summary><b>它和基于 AppleScript 的 MCP 服务器有什么不同？</b></summary>
 
 AppleScript 只能看到每个应用愿意开放给脚本的部分，需要应用保持打开，还要申请“自动化”权限。Gesher
-直接调用这些应用本身所依赖的框架：速度更快，应用关着也能用，还能做到脚本做不到的事，比如 Reminders
+直接调用这些应用本身所依赖的框架：应用关着也能用，还能做到脚本做不到的事，比如 Reminders
 的分组和智能列表、Notes 的标签和表格，以及 Freeform 白板。
 </details>
 

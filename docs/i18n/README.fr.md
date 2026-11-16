@@ -208,7 +208,7 @@ redonner l'accès après les mises à jour.
 
 AppleScript ne voit que ce que chaque app a choisi de rendre scriptable, a besoin que l'app soit ouverte et
 demande l'accès à l'Automatisation. Gesher appelle les frameworks sur lesquels les apps sont construites :
-il est plus rapide, fonctionne apps fermées et atteint ce que les scripts ne peuvent pas, comme les sections
+il fonctionne apps fermées et atteint ce que les scripts ne peuvent pas, comme les sections
 et listes intelligentes de Reminders, les tags et tableaux de Notes, et les tableaux Freeform.
 </details>
 
