@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.1.0/gesher-reminders-1.1.0.mcpb",
-      "fileSha256": "079a5a9f209d895ffd3c2fa29374caaf437b3dcc5f3a07f2a50a793027dc84aa",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.2.0/gesher-reminders-1.2.0.mcpb",
+      "fileSha256": "37430472240881d1040db61e2580770a208d6803317b7f7c3e6bd55f002c9ad1",
       "transport": {
         "type": "stdio"
       }

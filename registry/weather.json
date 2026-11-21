@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.1.0/gesher-weather-1.1.0.mcpb",
-      "fileSha256": "002f4abaaa0b84b7a77e738fc82f11e3ccdd7425206005ab7ed5155d6219da43",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.2.0/gesher-weather-1.2.0.mcpb",
+      "fileSha256": "7d7eb2285582e32dd81e5a207245a70f19da6dd31ba3cce19e001558cf2eee55",
       "transport": {
         "type": "stdio"
       }

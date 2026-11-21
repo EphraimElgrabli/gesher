@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.1.0/gesher-contacts-1.1.0.mcpb",
-      "fileSha256": "e0c6c9cab2bcece0c653981e5134182e146dc155f2cf8316d57d3d6a7e3e4bd9",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.2.0/gesher-contacts-1.2.0.mcpb",
+      "fileSha256": "7c840c55b222cbe4727c0fe9716d286da72e7bcb2e71494cd588b77ed59aeca0",
       "transport": {
         "type": "stdio"
       }
