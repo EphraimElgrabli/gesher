@@ -1,4 +1,5 @@
 #import "ObjCRuntimeSupport.h"
+#import <mach-o/loader.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 
@@ -205,4 +206,22 @@ NSArray<NSArray<NSNumber *> *> *ObjCReadTripleDoublePoints(id receiver, NSError 
             userInfo:@{NSLocalizedDescriptionKey: exception.reason ?: exception.name}];
         return nil;
     }
+}
+
+NSString * _Nullable ObjCMachOImageUUIDString(const void *imageHeader) {
+    if (!imageHeader) return nil;
+    const struct mach_header_64 *header = (const struct mach_header_64 *)imageHeader;
+    if (header->magic != MH_MAGIC_64) return nil;
+    const uint8_t *cursor = (const uint8_t *)(header + 1);
+    const uint8_t *end = cursor + header->sizeofcmds;
+    for (uint32_t i = 0; i < header->ncmds && cursor + sizeof(struct load_command) <= end; i++) {
+        const struct load_command *cmd = (const struct load_command *)cursor;
+        if (cmd->cmdsize < sizeof(struct load_command) || cursor + cmd->cmdsize > end) break;
+        if (cmd->cmd == LC_UUID && cmd->cmdsize >= sizeof(struct uuid_command)) {
+            const struct uuid_command *uuidCmd = (const struct uuid_command *)cmd;
+            return [[[NSUUID alloc] initWithUUIDBytes:uuidCmd->uuid] UUIDString];
+        }
+        cursor += cmd->cmdsize;
+    }
+    return nil;
 }

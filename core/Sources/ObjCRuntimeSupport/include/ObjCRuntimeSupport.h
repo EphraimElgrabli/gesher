@@ -45,6 +45,9 @@ BOOL ObjCRespondsOrForwardsSelector(id receiver, SEL selector);
 // Reads a bounded array of three-double native coordinates, validating the full ABI before invocation.
 NSArray<NSArray<NSNumber *> *> * _Nullable ObjCReadTripleDoublePoints(id receiver, NSError **error);
 
+// Returns the Mach-O LC_UUID string for a loaded 64-bit image header, or nil if absent/invalid.
+NSString * _Nullable ObjCMachOImageUUIDString(const void *imageHeader);
+
 NS_ASSUME_NONNULL_END
 
 // Swift resilient value return in x8; class/method self in x20. arm64 only.
@@ -59,3 +62,18 @@ void ObjCCallSwiftMethod4(void * _Nonnull function, void * _Nullable swiftSelf, 
 void ObjCCallSwiftThrowingGenericInit(
     void * _Nonnull function, uintptr_t argument0, uintptr_t argument1, const void * _Nonnull metadata,
     const void * _Nonnull witnessTable, void * _Nonnull result, void * _Nullable * _Nonnull errorOut);
+
+// Calls a throwing Swift method (self in x20, args in x0-x2, swifterror in x21). arm64 only.
+void * _Nullable ObjCCallSwiftSelf3Throwing(
+    void * _Nonnull function, void * _Nullable swiftSelf, uintptr_t argument0, uintptr_t argument1,
+    uintptr_t argument2, void * _Nullable * _Nonnull errorOut);
+
+// Calls a throwing Swift method (self in x20, args in x0-x3, swifterror in x21). arm64 only.
+void * _Nullable ObjCCallSwiftSelf4Throwing(
+    void * _Nonnull function, void * _Nullable swiftSelf, uintptr_t argument0, uintptr_t argument1,
+    uintptr_t argument2, uintptr_t argument3, void * _Nullable * _Nonnull errorOut);
+
+// Calls a non-throwing Swift method/initializer (self in x20, args in x0-x5). arm64 only.
+void * _Nullable ObjCCallSwiftSelf6(
+    void * _Nonnull function, void * _Nullable swiftSelf, uintptr_t argument0, uintptr_t argument1,
+    uintptr_t argument2, uintptr_t argument3, uintptr_t argument4, uintptr_t argument5);
