@@ -1,3 +1,4 @@
+import CryptoKit
 import GesherPlatform
 import Foundation
 import SQLite3
@@ -31,6 +32,28 @@ public struct FreeformBoardSnapshot: Sendable, Equatable {
     /// Root container of the canvas (items whose parent it is are top level).
     public let rootContainerID: String?
     public let itemCount: Int
+    /// Deterministic content revision of the board and its live items for optimistic concurrency.
+    public let revision: String?
+
+    public init(
+        id: String, title: String?, favorite: Bool, folderID: String?, folder: String?, deleted: Bool,
+        deletedAt: Date?, createdAt: Date?, lastActivityAt: Date?, sharing: Sharing?, rootContainerID: String?,
+        itemCount: Int, revision: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.favorite = favorite
+        self.folderID = folderID
+        self.folder = folder
+        self.deleted = deleted
+        self.deletedAt = deletedAt
+        self.createdAt = createdAt
+        self.lastActivityAt = lastActivityAt
+        self.sharing = sharing
+        self.rootContainerID = rootContainerID
+        self.itemCount = itemCount
+        self.revision = revision
+    }
 }
 
 public struct FreeformFolderSnapshot: Sendable, Equatable {
@@ -51,6 +74,67 @@ public struct FreeformColor: Sendable, Equatable {
         func byte(_ value: Double) -> String { String(format: "%02X", Int((min(max(value, 0), 1) * 255).rounded())) }
         return "#" + byte(red) + byte(green) + byte(blue) + (alpha < 0.999 ? byte(alpha) : "")
     }
+
+    public init(red: Double, green: Double, blue: Double, alpha: Double = 1) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+        self.alpha = alpha
+    }
+
+    private static let namedColors: [String: FreeformColor] = [
+        "yellow": FreeformColor(red: 1.0, green: 0.89, blue: 0.36),
+        "blue": FreeformColor(red: 0.25, green: 0.56, blue: 0.96),
+        "green": FreeformColor(red: 0.30, green: 0.78, blue: 0.48),
+        "pink": FreeformColor(red: 0.96, green: 0.45, blue: 0.67),
+        "orange": FreeformColor(red: 0.98, green: 0.58, blue: 0.22),
+        "purple": FreeformColor(red: 0.65, green: 0.44, blue: 0.95),
+        "red": FreeformColor(red: 0.91, green: 0.30, blue: 0.24),
+        "teal": FreeformColor(red: 0.20, green: 0.73, blue: 0.76),
+        "gray": FreeformColor(red: 0.56, green: 0.56, blue: 0.58),
+        "grey": FreeformColor(red: 0.56, green: 0.56, blue: 0.58),
+        "white": FreeformColor(red: 1.0, green: 1.0, blue: 1.0),
+        "black": FreeformColor(red: 0.0, green: 0.0, blue: 0.0),
+        "clear": FreeformColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0),
+    ]
+
+    /// Parses `#RGB`, `#RRGGBB`, `#RRGGBBAA` or a standard color name.
+    public static func parse(_ raw: String) throws -> FreeformColor {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let named = namedColors[trimmed.lowercased()] { return named }
+        let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        let expanded: String
+        switch hex.count {
+        case 3:
+            expanded = hex.map { "\($0)\($0)" }.joined() + "FF"
+        case 6:
+            expanded = hex + "FF"
+        case 8:
+            expanded = hex
+        default:
+            throw AgentError.invalid(
+                "Invalid color '\(raw)'.",
+                hint:
+                    "Use #RRGGBB, #RRGGBBAA or a named color (yellow, blue, green, pink, orange, purple, red, teal, gray, white, black)."
+            )
+        }
+        guard let value = UInt32(expanded, radix: 16) else {
+            throw AgentError.invalid(
+                "Invalid hex color '\(raw)'.", hint: "Use #RRGGBB or #RRGGBBAA, e.g. #3B82F6.")
+        }
+        return FreeformColor(
+            red: Double((value >> 24) & 0xFF) / 255.0,
+            green: Double((value >> 16) & 0xFF) / 255.0,
+            blue: Double((value >> 8) & 0xFF) / 255.0,
+            alpha: Double(value & 0xFF) / 255.0)
+    }
+}
+
+/// Decoded items of a board together with explicit diagnostics for unsupported or partially decoded rows.
+public struct FreeformItemsReport: Sendable, Equatable {
+    public let items: [FreeformItemSnapshot]
+    public let unsupportedCount: Int
+    public let partialDecodeCount: Int
 }
 
 public struct FreeformItemSnapshot: Sendable, Equatable {
@@ -230,13 +314,45 @@ public final class FreeformSnapshot {
                 lastActivityAt: lastActivity,
                 sharing: owner ? .participant : shared ? .owner : nil,
                 rootContainerID: data?["rootContainerAffinity.rootContainerUUID"]?.uuid?.uuidString,
-                itemCount: Int(row[10] as? Int64 ?? 0))
+                itemCount: Int(row[10] as? Int64 ?? 0),
+                revision: boardRevision(
+                    boardID: identifier, boardData: row[1] as? Data, favorite: (row[7] as? Int64 ?? 0) != 0,
+                    deleted: deleted))
         }.sorted { ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast) }
+    }
+
+    private func boardRevision(boardID: Data, boardData: Data?, favorite: Bool, deleted: Bool) -> String {
+        var hasher = SHA256()
+        hasher.update(data: boardID)
+        if let boardData { hasher.update(data: boardData) }
+        hasher.update(data: Data([favorite ? 1 : 0, deleted ? 1 : 0]))
+        let itemRows = db.rows(
+            "SELECT item_uuid, parent_uuid, item_type, common_data, specific_data FROM board_items WHERE board_identifier = ? AND tombstoned = 0 ORDER BY item_uuid",
+            blob: boardID)
+        for row in itemRows {
+            if let id = row[0] as? Data { hasher.update(data: id) }
+            if let parent = row[1] as? Data { hasher.update(data: parent) }
+            if let kind = row[2] as? Int64 {
+                var little = kind.littleEndian
+                hasher.update(data: Data(bytes: &little, count: MemoryLayout<Int64>.size))
+            }
+            if let common = row[3] as? Data { hasher.update(data: common) }
+            if let specific = row[4] as? Data { hasher.update(data: specific) }
+        }
+        let digest = hasher.finalize()
+        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The live (not deleted) items of a board, in stacking order within each parent.
     public func items(board: FreeformBoardSnapshot) -> [FreeformItemSnapshot] {
-        guard let boardID = UUID(uuidString: board.id) else { return [] }
+        itemsReport(board: board).items
+    }
+
+    /// The live items of a board together with counts of unrecognized or partially decoded rows.
+    public func itemsReport(board: FreeformBoardSnapshot) -> FreeformItemsReport {
+        guard let boardID = UUID(uuidString: board.id) else {
+            return FreeformItemsReport(items: [], unsupportedCount: 0, partialDecodeCount: 0)
+        }
         let rows = db.rows(
             "SELECT item_uuid, parent_uuid, item_type, common_data, specific_data FROM board_items WHERE board_identifier = ? AND tombstoned = 0",
             blob: SQLiteSnapshot.blob(boardID))
@@ -275,12 +391,24 @@ public final class FreeformSnapshot {
             }
             return board.rootContainerID == nil && row.parent != nil
         }
-        return decoded.filter { $0.parent != nil && onCanvas($0) }.compactMap { row in
-            guard let kind = row.kind else { return nil }
-            return Self.item(
-                row.id, kind: kind, parent: row.parent, root: board.rootContainerID,
-                zIndex: order[row.id], common: row.common, specific: row.specific)
-        }.sorted { ($0.parentID ?? "", $0.zIndex ?? 0, $0.id) < ($1.parentID ?? "", $1.zIndex ?? 0, $1.id) }
+        let canvasRows = decoded.filter { $0.parent != nil && onCanvas($0) }
+        var unsupportedCount = 0
+        var partialDecodeCount = 0
+        var items: [FreeformItemSnapshot] = []
+        for row in canvasRows {
+            guard let kind = row.kind else {
+                unsupportedCount += 1
+                continue
+            }
+            if row.common == nil || row.specific == nil { partialDecodeCount += 1 }
+            items.append(
+                Self.item(
+                    row.id, kind: kind, parent: row.parent, root: board.rootContainerID,
+                    zIndex: order[row.id], common: row.common, specific: row.specific))
+        }
+        items.sort { ($0.parentID ?? "", $0.zIndex ?? 0, $0.id) < ($1.parentID ?? "", $1.zIndex ?? 0, $1.id) }
+        return FreeformItemsReport(
+            items: items, unsupportedCount: unsupportedCount, partialDecodeCount: partialDecodeCount)
     }
 
     static func item(

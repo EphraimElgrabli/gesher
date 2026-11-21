@@ -222,7 +222,7 @@ let package = Package(
         // MARK: - Freeform
         .target(
             name: "FreeformCore",
-            dependencies: ["GesherPlatform"],
+            dependencies: ["ObjCRuntimeSupport", "GesherPlatform"],
             path: "apps/freeform/Sources/FreeformCore",
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),

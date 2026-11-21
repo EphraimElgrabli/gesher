@@ -15,6 +15,7 @@ struct Board: Encodable, Sendable {
     /// `owner` (you shared it) or `participant` (shared with you); absent when not shared.
     let shared: String?
     let items: Int
+    let revision: String?
     let deleted: Bool?
     let deletedAt: String?
     let createdAt: String?
@@ -27,6 +28,7 @@ struct Board: Encodable, Sendable {
         folder = board.folder ?? board.folderID
         shared = board.sharing?.rawValue
         items = board.itemCount
+        revision = board.revision
         deleted = board.deleted ? true : nil
         deletedAt = board.deletedAt.map { DateOutput.iso($0) }
         createdAt = board.createdAt.map { DateOutput.iso($0) }
@@ -82,11 +84,20 @@ struct BoardDetailOutput: Encodable, Sendable {
     let board: Board
     /// Item count per type.
     let types: [String: Int]
+    let coordinateSystem: String
+    let unsupportedItems: Int?
+    let partiallyDecodedItems: Int?
 }
 
 struct ItemsOutput: Encodable, Sendable {
     let board: String
     let title: String?
+    let revision: String?
+    let total: Int
+    let offset: Int?
+    let more: Int?
+    let unsupportedItems: Int?
+    let partiallyDecodedItems: Int?
     let items: [Item]
 }
 
@@ -95,6 +106,7 @@ struct CreateBoardOutput: Encodable, Sendable {
     let items: [Item]
     /// Content Freeform has not placed on the board yet (still importing or rejected).
     let pending: Int?
+    let sync: String?
 }
 
 struct AddItemsOutput: Encodable, Sendable {
@@ -102,4 +114,43 @@ struct AddItemsOutput: Encodable, Sendable {
     let title: String?
     let added: [Item]
     let pending: Int?
+}
+
+struct BoardMutationOutput: Encodable, Sendable {
+    let board: Board
+    let sync: String
+}
+
+struct ItemMutationOutput: Encodable, Sendable {
+    let board: String
+    let title: String?
+    let revision: String?
+    let item: Item
+    let sync: String
+}
+
+struct ItemsMutationOutput: Encodable, Sendable {
+    let board: String
+    let title: String?
+    let revision: String?
+    let items: [Item]
+    let sync: String
+}
+
+struct DeleteItemsOutput: Encodable, Sendable {
+    let board: String
+    let title: String?
+    let revision: String?
+    let deleted: [String]
+    let affectedConnectors: [Item]?
+    let sync: String
+}
+
+struct DiagramOutput: Encodable, Sendable {
+    let board: String
+    let title: String?
+    let revision: String?
+    let nodes: [String: Item]
+    let edges: [Item]
+    let sync: String
 }

@@ -9,22 +9,28 @@ enum FreeformCli {
 }
 
 /// The Freeform app. Reads decode a temporary copy of the store with Freeform's own model types;
-/// writes go through Freeform's import inbox, so the app itself creates, saves and syncs the
-/// content (see FreeformImporter and RESEARCH.md).
+/// native board authoring and lifecycle mutations run through Freeform's own in-process store and
+/// command engine (gated on verified Mach-O build UUID, with Freeform closed); media/file imports
+/// use Freeform's import inbox (see FreeformNativeBridge, FreeformImporter and RESEARCH.md).
 enum FreeformApp {
     static func make(context: @escaping () throws -> FreeformContext = { FreeformContext() })
         -> AgentApp<FreeformContext>
     {
         AgentApp(
             name: "freeform",
-            summary: "Read Freeform boards and their items; create boards and add text, links, images and files.",
+            summary:
+                "Read, author and edit Apple Freeform boards: native text boxes, shapes, sticky notes, bound connectors, diagrams and board lifecycle.",
             instructions: """
                 Boards accept a title or an id; on 'ambiguous' retry with a candidate id. boards_list and \
                 items_list read a temporary copy of the store (titles, folders, favorites, item text, \
-                positions, sizes, colors, stacking order); search finds text, links and file names across \
-                boards. boards_create and items_add hand content to the Freeform app, which places it on the \
-                board and syncs it; positions cannot be chosen. Renaming, favoriting, deleting boards and \
-                editing or deleting items are not available: tell the user to do those in Freeform.
+                positions, sizes, colors, stacking order, connector endpoints, revisions); search finds text, \
+                links and file names across boards. Native authoring (items_add_text, items_add_shape, \
+                items_add_sticky, items_connect, items_update, items_delete, items_duplicate, items_group, \
+                items_ungroup, items_align, diagram_create, boards_rename, boards_favorite, boards_delete, \
+                boards_restore) writes through Freeform's own command engine while Freeform is closed and \
+                verifies every change on readback; changes sync to iCloud the next time Freeform opens. \
+                Pass ifRevision from boards_get or items_list to guard against concurrent edits. items_add \
+                and boards_create with files/urls use Freeform's import inbox.
                 """,
             permission: .fullDiskAccess,
             operations: [
@@ -34,7 +40,22 @@ enum FreeformApp {
                 AnyOperation(ListItems.self),
                 AnyOperation(SearchBoards.self),
                 AnyOperation(CreateBoard.self),
+                AnyOperation(RenameBoard.self),
+                AnyOperation(FavoriteBoard.self),
+                AnyOperation(DeleteBoard.self),
+                AnyOperation(RestoreBoard.self),
                 AnyOperation(AddItems.self),
+                AnyOperation(AddTextItem.self),
+                AnyOperation(AddShapeItem.self),
+                AnyOperation(AddStickyItem.self),
+                AnyOperation(ConnectItems.self),
+                AnyOperation(UpdateItem.self),
+                AnyOperation(DeleteItems.self),
+                AnyOperation(DuplicateItems.self),
+                AnyOperation(GroupItems.self),
+                AnyOperation(UngroupItems.self),
+                AnyOperation(AlignItems.self),
+                AnyOperation(CreateDiagram.self),
             ],
             context: context)
     }
@@ -44,6 +65,8 @@ enum FreeformApp {
 final class FreeformContext {
     let store: FreeformStore
     let importer: FreeformImporter
+    let writer: FreeformWriter
+    private let authoringAvailable: () -> Bool
     /// Opens Freeform when it is not running, so it imports queued content.
     let launchApp: () throws -> Void
     /// How long a write waits for Freeform to import and save the content.
@@ -51,14 +74,22 @@ final class FreeformContext {
 
     init(
         store: FreeformStore = FreeformStore(), importer: FreeformImporter? = nil,
+        writer: FreeformWriter? = nil,
+        authoringAvailable: @escaping () -> Bool = {
+            !FreeformImporter.isAppRunning && FreeformNativeBridge.status().isAvailable
+        },
         launchApp: @escaping () throws -> Void = { try FreeformImporter.launchAppIfNeeded() },
         importTimeout: TimeInterval = 45
     ) {
         self.store = store
         self.importer = importer ?? FreeformImporter(groupContainer: store.groupContainer)
+        self.writer = writer ?? FreeformWriter(store: store)
+        self.authoringAvailable = authoringAvailable
         self.launchApp = launchApp
         self.importTimeout = importTimeout
     }
+
+    func canAuthorNatively() -> Bool { authoringAvailable() }
 
     func snapshot<T>(_ body: (FreeformSnapshot) throws -> T) throws -> T {
         try store.withSnapshot(try store.requireLocation(), body)
@@ -91,20 +122,51 @@ enum FreeformDoctor: AgentOperation {
         } catch {
             model = AgentError.from(error).message
         }
+        let authoringStatus = FreeformNativeBridge.status()
+        let buildUUID: String?
+        switch authoringStatus {
+        case .native(let uuid, _): buildUUID = uuid
+        case .unsupportedBuild(let uuid, _): buildUUID = uuid
+        case .unavailable: buildUUID = nil
+        }
+        let running = FreeformImporter.isAppRunning
+        let authoringLabel =
+            authoringStatus.isAvailable ? (running ? "native_paused_app_running" : "native") : authoringStatus.label
         let hint: String? =
             !readable
             ? "Give the app that runs freeform-cli Full Disk Access (System Settings > Privacy & Security), then restart it."
             : location == nil
                 ? "No Freeform board store was found; open Freeform once to create it."
-                : model != "ok" ? "This Freeform version's model is not supported; reads may omit fields." : nil
+                : model != "ok"
+                    ? "This Freeform version's model is not supported; reads may omit fields."
+                    : !authoringStatus.isAvailable
+                        ? "Native authoring is gated on verified Freeform builds; reads and import-inbox writes still work."
+                        : running
+                            ? "Quit Freeform before running native authoring or board lifecycle commands." : nil
         return DoctorOutput(
             app: "freeform", version: AgentApp<FreeformContext>.version,
             os: ProcessInfo.processInfo.operatingSystemVersionString,
             freeform: app?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-            freeformRunning: FreeformImporter.isAppRunning,
+            freeformBuild: app?.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+            buildUUID: buildUUID,
+            freeformRunning: running,
             permission: PermissionCoordinator().inspect(service: .fullDiskAccess).permission,
             groupContainerReadable: readable, store: location?.kind.rawValue,
             storeModifiedAt: location.flatMap { lastModified($0.database) }.map { DateOutput.iso($0) }, model: model,
+            authoring: authoringLabel,
+            capabilities: DoctorCapabilities(
+                supported: authoringStatus.isAvailable
+                    ? [
+                        "boards_read", "items_read_paginated", "search", "import_inbox_media_links",
+                        "native_text_shape_sticky", "native_bound_connectors", "native_update_move_style_delete",
+                        "native_group_duplicate_align", "native_diagram_batch",
+                        "boards_rename_favorite_delete_restore",
+                    ]
+                    : ["boards_read", "items_read_paginated", "search", "import_inbox_media_links"],
+                blocked: [
+                    "shared_board_participant_writes", "collaboration_invites_and_presence", "table_cell_editing",
+                    "freehand_drawing_authoring", "pdf_export", "folders_write", "live_icloud_push_while_closed",
+                ]),
             hint: hint)
     }
 
@@ -121,6 +183,8 @@ struct DoctorOutput: Encodable, Sendable {
     let os: String
     /// Installed Freeform version; nil when Freeform is not installed.
     let freeform: String?
+    let freeformBuild: String?
+    let buildUUID: String?
     let freeformRunning: Bool
     /// Full Disk Access, named `permission` like every other app's doctor.
     let permission: String
@@ -130,5 +194,13 @@ struct DoctorOutput: Encodable, Sendable {
     let storeModifiedAt: String?
     /// `ok` when every Freeform model type used for decoding resolves.
     let model: String
+    /// `native`, `native_paused_app_running`, `unsupported_build` or `unavailable`.
+    let authoring: String
+    let capabilities: DoctorCapabilities
     let hint: String?
+}
+
+struct DoctorCapabilities: Encodable, Sendable {
+    let supported: [String]
+    let blocked: [String]
 }
