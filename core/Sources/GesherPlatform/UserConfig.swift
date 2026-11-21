@@ -15,10 +15,7 @@ public struct UserConfig: Sendable {
     public init(values: [String: [String: String]]) { self.values = values }
 
     public static func load(environment: [String: String] = ProcessInfo.processInfo.environment) -> UserConfig {
-        let path =
-            environment["GESHER_CONFIG"]
-            ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/gesher/config.json").path
+        let path = configURL(environment: environment).path
         guard let data = FileManager.default.contents(atPath: path),
             let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return UserConfig(values: [:]) }
@@ -32,6 +29,39 @@ public struct UserConfig: Sendable {
             }
         }
         return UserConfig(values: values)
+    }
+
+    public static func configURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if let custom = environment["GESHER_CONFIG"], !custom.isEmpty {
+            return URL(fileURLWithPath: custom)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/gesher/config.json")
+    }
+
+    /// Updates keys inside one section of `config.json` while preserving all other sections and keys.
+    public static func setValues(
+        _ updates: [String: String?], inSection section: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws {
+        let url = configURL(environment: environment)
+        var root: [String: Any] = [:]
+        if let data = FileManager.default.contents(atPath: url.path),
+            let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        {
+            root = existing
+        }
+        var sectionDict = (root[section] as? [String: Any]) ?? [:]
+        for (key, value) in updates {
+            if let value {
+                sectionDict[key] = value
+            } else {
+                sectionDict.removeValue(forKey: key)
+            }
+        }
+        root[section] = sectionDict
+        let encoded = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        try PrivateStorage.createDirectory(url.deletingLastPathComponent())
+        try PrivateStorage.write(encoded, to: url)
     }
 
     public func value(_ app: String, _ key: String) -> String? {
