@@ -145,7 +145,9 @@ final class FixtureStore {
 
     func context(launch: @escaping () throws -> Void = {}) -> FreeformContext {
         let decoder = { [unowned self] in FakeDecoder(values: self.values) as FreeformRecordDecoding }
-        return FreeformContext(store: FreeformStore(home: home, decoder: decoder), launchApp: launch, importTimeout: 2)
+        return FreeformContext(
+            store: FreeformStore(home: home, decoder: decoder), authoringAvailable: { false }, launchApp: launch,
+            importTimeout: 2)
     }
 
     static func common(x: Double, y: Double, width: Double, height: Double) -> FakeCommon {
@@ -171,11 +173,14 @@ final class FreeformCliTests: XCTestCase {
         XCTAssertEqual(
             app.operations.map(\.toolName),
             [
-                "doctor", "boards_list", "boards_get", "items_list", "search", "boards_create", "items_add",
+                "doctor", "boards_list", "boards_get", "items_list", "search", "boards_create", "boards_rename",
+                "boards_favorite", "boards_delete", "boards_restore", "items_add", "items_add_text", "items_add_shape",
+                "items_add_sticky", "items_connect", "items_update", "items_delete", "items_duplicate", "items_group",
+                "items_ungroup", "items_align", "diagram_create",
                 "permissions",
             ])
-        XCTAssertEqual(app.operations.filter { $0.effect == .write }.map(\.toolName), ["boards_create", "items_add"])
-        XCTAssertFalse(app.operations.contains { $0.effect == .destructive })
+        XCTAssertEqual(
+            app.operations.filter { $0.effect == .destructive }.map(\.toolName), ["boards_delete", "items_delete"])
     }
 
     func testReflectedLooksThroughRegistersAndOptionals() {

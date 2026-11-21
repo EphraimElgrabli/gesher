@@ -73,6 +73,10 @@ public final class FreeformModelRuntime: FreeformRecordDecoding, @unchecked Send
     private let conformsToProtocol: @convention(c) (UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer?
     private var types: [FreeformRecord: (metadata: Any.Type, witness: UnsafeRawPointer)?] = [:]
     private let typesLock = NSLock()
+    /// Load address of the loaded Freeform executable image.
+    public let imageBase: UInt
+    /// Mach-O LC_UUID of the loaded Freeform executable image, used to strictly gate private ABI calls.
+    public let imageUUID: String?
 
     /// The process-wide runtime; loads Freeform and Coherence once.
     public static func load() throws -> FreeformModelRuntime {
@@ -106,6 +110,17 @@ public final class FreeformModelRuntime: FreeformRecordDecoding, @unchecked Send
         protocolDescriptor = UnsafeRawPointer(descriptor)
         conformsToProtocol = unsafeBitCast(
             conforms, to: (@convention(c) (UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer?).self)
+        var info = Dl_info()
+        if let boardClass = NSClassFromString("Freeform.CRLBoard"),
+            dladdr(unsafeBitCast(boardClass, to: UnsafeRawPointer.self), &info) != 0,
+            let basePointer = info.dli_fbase
+        {
+            imageBase = UInt(bitPattern: basePointer)
+            imageUUID = ObjCMachOImageUUIDString(basePointer)
+        } else {
+            imageBase = 0
+            imageUUID = nil
+        }
     }
 
     private static func loadFreeformExecutable() throws {

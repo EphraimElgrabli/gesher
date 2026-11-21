@@ -7,6 +7,8 @@ enum ListItems: AgentOperation {
     struct Input: Decodable, Sendable {
         var board: String
         var type: String?
+        var limit: Int?
+        var offset: Int
     }
 
     static let path = ["items", "list"]
@@ -18,14 +20,27 @@ enum ListItems: AgentOperation {
             "type",
             ["text", "shape", "sticky", "connector", "image", "file", "link", "table", "drawing", "movie", "group"],
             "Only items of this type."),
+        .integer("limit", "Maximum items to return.", min: 1, max: 1000),
+        .integer("offset", "Number of items to skip.", default: 0, min: 0),
     ]
-    static let examples = ["items list 'Trip ideas'", "items list 'Trip ideas' --type sticky"]
+    static let examples = [
+        "items list 'Trip ideas'", "items list 'Trip ideas' --type sticky", "items list 'Trip ideas' --limit 50",
+    ]
 
     static func run(_ input: Input, _ context: FreeformContext) throws -> ItemsOutput {
         try context.snapshot { snapshot in
             let board = try context.board(input.board, in: snapshot, includeDeleted: true)
-            let items = snapshot.items(board: board).filter { input.type == nil || $0.type == input.type }
-            return ItemsOutput(board: board.id, title: board.title, items: items.map(Item.init))
+            let report = snapshot.itemsReport(board: board)
+            let filtered = report.items.filter { input.type == nil || $0.type == input.type }
+            let sliced = Array(filtered.dropFirst(input.offset))
+            let page = input.limit.map { Array(sliced.prefix($0)) } ?? sliced
+            let remaining = max(0, sliced.count - page.count)
+            return ItemsOutput(
+                board: board.id, title: board.title, revision: board.revision, total: filtered.count,
+                offset: input.offset > 0 ? input.offset : nil, more: remaining > 0 ? remaining : nil,
+                unsupportedItems: report.unsupportedCount > 0 ? report.unsupportedCount : nil,
+                partiallyDecodedItems: report.partialDecodeCount > 0 ? report.partialDecodeCount : nil,
+                items: page.map(Item.init))
         }
     }
 

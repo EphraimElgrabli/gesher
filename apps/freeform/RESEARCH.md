@@ -1,5 +1,49 @@
 # Freeform private-backend research
 
+## Update 2026-11-22: verified native in-process authoring and board lifecycle
+
+Host: macOS 27.0 (26A428), Freeform 5.0 (656.1.2, Mach-O `LC_UUID: F65BAD7D-30CD-3E6A-BA48-0C8C23C9C446`).
+
+A deeper spike of Path B resolved the bootstrap gap identified in the 2026-11-03 research:
+
+- **Synchronous bootstrap entry points exist inside the executable** alongside Freeform's full
+  ObjC command surface:
+  - `CRLBoardDataStore.init(dataDirectory:temporaryDirectory:queue:)` initializes a store rooted
+    at any directory (production `Boards/` or an isolated temporary directory for tests) without
+    touching the live store during tests, followed by ObjC `-openDatabaseWithCompletionHandler:`
+    and `-closeDatabaseWithCompletionHandler:`.
+  - `CRLBoard` creation + `CRLTransactionContext` + `markNew` + `appendPendingChanges` creates
+    complete boards (including `boards_metadata` and both root containers) saved through ObjC
+    `CRLBoard -asyncSavePendingChangesWithCompletionHandler:`.
+  - `CRLBoardDataStore` synchronous fetch on `readQueue` returns `CRLBoardDatabaseFetchResult`,
+    which hydrates a live `CRLBoard` with all child items via `CRLBoard.init` +
+    `CRLBoard.mergeDatabaseChanges` + transaction commit.
+  - `CRLBoardItemFactory` initializes cleanly from `board` and `board.data.crdtData.insertStyleData`.
+  - `CRLBoardIdentifier` conforms to `Codable` (`{"storage":{"boardUUID":...,"ownerName":""}}`),
+    enabling `setFavorite`, `deleteBoard` and `undeleteBoard` on `writeQueue` without needing a
+    prior live-board fetch (so Recently Deleted boards can be restored cleanly).
+- **All item creation and editing uses Freeform's own ObjC command engine** (`CRLCommandController`,
+  `CRLBoardItemFactory`, `CRLConnectionLineItem`, `CRLCommandInsertBoardItems`,
+  `CRLCommandDeleteBoardItems`, `CRLCommandSetInfoGeometry`, `CRLCommandSetFill`,
+  `CRLCommandSetStroke`, `CRLCommandSetLineEnd`, `CRLCommandSetLocked`,
+  `CRLCommandSetConnectionLineConnection`, `CRLCommandReorderContainerChildren`,
+  `CRLCommandReparentBoardItems`, `CRLWPReplaceTextCommand`, `CRLCommandDirtyBoard`). No raw
+  SQLite writes are performed.
+- **Strict ABI gating:** `FreeformNativeBridge` refuses to execute any unexported Swift bootstrap
+  call unless the loaded executable's Mach-O `LC_UUID` matches a verified build entry and every
+  required ObjC class, selector and ivar is validated. Unknown builds fail cleanly with
+  `unsupported_private_api` while read commands and the import inbox keep working.
+- **Live verification:** isolated tests verified 5-node + 4-connector diagram authoring, Hebrew/RTL
+  text, geometry/color/text updates, optimistic concurrency (`ifRevision`), locked-item protection,
+  grouping, duplicating, aligning, and board rename/favorite/delete/restore. A live QA board
+  (`QA-gesher-freeform-verify`) was created with 5 nodes and 4 bound connectors, loaded cleanly by
+  Freeform.app through launch and quit with all 9 items and connector bindings intact, and then
+  moved to Recently Deleted.
+- **Still out of scope / blocked:** participant writes to boards shared with you, collaboration
+  invites/presence, table cell editing, freehand drawing authoring, PDF export, folder writes, and
+  live iCloud push while Freeform is closed (changes sync when Freeform next launches; multi-device
+  iCloud sync remains unverified in automated tests).
+
 ## Update 2026-11-03: content reads and writes
 
 Host: macOS 27.0 (26A428), Freeform 5.0 (656.1.2), iCloud sync on (`CloudKit syncing is

@@ -41,8 +41,13 @@ enum GetBoard: AgentOperation {
     static func run(_ input: Input, _ context: FreeformContext) throws -> BoardDetailOutput {
         try context.snapshot { snapshot in
             let board = try context.board(input.board, in: snapshot, includeDeleted: true)
-            let types = Dictionary(snapshot.items(board: board).map { ($0.type, 1) }, uniquingKeysWith: +)
-            return BoardDetailOutput(board: Board(board), types: types)
+            let report = snapshot.itemsReport(board: board)
+            let types = Dictionary(report.items.map { ($0.type, 1) }, uniquingKeysWith: +)
+            return BoardDetailOutput(
+                board: Board(board), types: types,
+                coordinateSystem: "points (x right, y down, angle degrees clockwise)",
+                unsupportedItems: report.unsupportedCount > 0 ? report.unsupportedCount : nil,
+                partiallyDecodedItems: report.partialDecodeCount > 0 ? report.partialDecodeCount : nil)
         }
     }
 }
@@ -82,6 +87,13 @@ enum CreateBoard: AgentOperation {
     static func run(_ input: Input, _ context: FreeformContext) throws -> CreateBoardOutput {
         let contents = try ImportContent.parse(text: input.text, url: input.url, file: input.file)
         let title = input.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        // When creating an empty board with no folder while Freeform is closed and native authoring is available,
+        // create it directly through CRLBoardDataStore so Freeform stays closed and subsequent authoring works immediately.
+        if contents.isEmpty, input.folder == nil, context.canAuthorNatively() {
+            let result = try context.writer.createBoard(title: title)
+            return CreateBoardOutput(
+                board: Board(result.board), items: [], pending: nil, sync: "pending_until_app_launch")
+        }
         let (existing, folder) = try context.snapshot { snapshot -> (Set<String>, FreeformFolderSnapshot?) in
             let folder = try input.folder.map { selector in
                 try EntityResolver.resolve(
@@ -112,7 +124,102 @@ enum CreateBoard: AgentOperation {
             )
         }
         let pending = contents.count - items.count
-        return CreateBoardOutput(board: Board(board), items: items.map(Item.init), pending: pending > 0 ? pending : nil)
+        return CreateBoardOutput(
+            board: Board(board), items: items.map(Item.init), pending: pending > 0 ? pending : nil, sync: nil)
+    }
+}
+
+enum RenameBoard: AgentOperation {
+    struct Input: Decodable, Sendable {
+        var board: String
+        var title: String
+        var ifRevision: String?
+    }
+
+    static let path = ["boards", "rename"]
+    static let summary = "Rename a Freeform board (Freeform must be closed)."
+    static let effect = OperationEffect.write
+    static let idempotent = true
+    static let params: [Param] = [
+        .string("board", "Board title or id.", required: true, positional: true),
+        .string("title", "New board title.", required: true),
+        .string("ifRevision", "Only save if the board still matches this revision."),
+    ]
+    static let examples = ["boards rename 'Trip ideas' --title 'Lisbon trip'"]
+
+    static func validate(_ input: Input) throws {
+        guard !input.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AgentError.invalid("The new board title is empty.")
+        }
+    }
+
+    static func run(_ input: Input, _ context: FreeformContext) throws -> BoardMutationOutput {
+        let result = try context.writer.renameBoard(
+            selector: input.board, title: input.title, ifRevision: input.ifRevision)
+        return BoardMutationOutput(board: Board(result.board), sync: "pending_until_app_launch")
+    }
+}
+
+enum FavoriteBoard: AgentOperation {
+    struct Input: Decodable, Sendable {
+        var board: String
+        var off: Bool
+    }
+
+    static let path = ["boards", "favorite"]
+    static let summary = "Favorite or unfavorite a Freeform board (Freeform must be closed)."
+    static let effect = OperationEffect.write
+    static let idempotent = true
+    static let params: [Param] = [
+        .string("board", "Board title or id.", required: true, positional: true),
+        .boolean("off", "Remove from favorites instead of adding."),
+    ]
+    static let examples = ["boards favorite 'Trip ideas'", "boards favorite 'Trip ideas' --off"]
+
+    static func run(_ input: Input, _ context: FreeformContext) throws -> BoardMutationOutput {
+        let result = try context.writer.setBoardFavorite(selector: input.board, favorite: !input.off)
+        return BoardMutationOutput(board: Board(result.board), sync: "pending_until_app_launch")
+    }
+}
+
+enum DeleteBoard: AgentOperation {
+    struct Input: Decodable, Sendable {
+        var board: String
+        var ifRevision: String?
+    }
+
+    static let path = ["boards", "delete"]
+    static let summary = "Move a Freeform board to Recently Deleted (exact title or id; Freeform must be closed)."
+    static let effect = OperationEffect.destructive
+    static let params: [Param] = [
+        .string("board", "Exact board title or id.", required: true, positional: true),
+        .string("ifRevision", "Only delete if the board still matches this revision."),
+    ]
+    static let examples = ["boards delete 'Draft board'"]
+
+    static func run(_ input: Input, _ context: FreeformContext) throws -> BoardMutationOutput {
+        let result = try context.writer.deleteBoard(selector: input.board, ifRevision: input.ifRevision)
+        return BoardMutationOutput(board: Board(result.board), sync: "pending_until_app_launch")
+    }
+}
+
+enum RestoreBoard: AgentOperation {
+    struct Input: Decodable, Sendable {
+        var board: String
+    }
+
+    static let path = ["boards", "restore"]
+    static let summary = "Restore a board from Recently Deleted (Freeform must be closed)."
+    static let effect = OperationEffect.write
+    static let idempotent = true
+    static let params: [Param] = [
+        .string("board", "Deleted board title or id.", required: true, positional: true)
+    ]
+    static let examples = ["boards restore 'Draft board'"]
+
+    static func run(_ input: Input, _ context: FreeformContext) throws -> BoardMutationOutput {
+        let result = try context.writer.restoreBoard(selector: input.board)
+        return BoardMutationOutput(board: Board(result.board), sync: "pending_until_app_launch")
     }
 }
 

@@ -10,7 +10,7 @@
 
 <p align="center"><b>Let Claude, Codex or Cursor write to Apple Notes, Reminders, Calendar and Freeform: Notes tables and tags, Reminders sections and smart lists, and Freeform boards.</b></p>
 
-<p align="center">One install for seven apps, with Contacts, Weather and Maps too. The apps can stay closed. A native Swift CLI and MCP server per app, 119 tools.</p>
+<p align="center">One install for seven apps, with Contacts, Weather and Maps too. The apps can stay closed. A native Swift CLI and MCP server per app, 134 tools.</p>
 
 <p align="center">
   <a href="https://github.com/EphraimElgrabli/gesher/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/EphraimElgrabli/gesher?style=flat-square&label=release"></a>
@@ -59,8 +59,8 @@ With iCloud, the changes show up on your iPhone too.
 
 I built Gesher for my own work. I wanted to stay in Apple's apps instead of adding more apps and subscriptions, and to finally have the assistant I wanted Siri to be. The technical challenge interested me too.
 
-- **Features the public APIs don't have.** Gesher calls the frameworks Apple's apps are built on, including private frameworks Apple doesn't document for third-party use (a macOS update may break them). 64 of its 119 tools do something no public Apple framework offers, like Reminders sections and smart lists, Notes tags and tables, and Freeform boards. [Tool-by-tool comparison](docs/public-apis.md) · [How it works](docs/architecture.md)
-- **The apps can stay closed.** No AppleScript, no Shortcuts, no clicking through windows. Freeform opens quietly in the background when an agent adds to a board.
+- **Features the public APIs don't have.** Gesher calls the frameworks Apple's apps are built on, including private frameworks Apple doesn't document for third-party use (a macOS update may break them). 79 of its 134 tools do something no public Apple framework offers, like Reminders sections and smart lists, Notes tags and tables, and editable Freeform diagrams. [Tool-by-tool comparison](docs/public-apis.md) · [How it works](docs/architecture.md)
+- **The apps can stay closed.** No AppleScript, no Shortcuts, no clicking through windows. Freeform opens quietly in the background only when importing media or files through its inbox.
 - **It checks its work.** Every write is read back. Bulk deletes are backed up first, deleted reminders and notes go to Recently Deleted, and Notes edits can be tied to the version the agent read.
 
 ## What your agent can do
@@ -73,7 +73,7 @@ I built Gesher for my own work. I wanted to stay in Apple's apps instead of addi
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/notes-dark.png"><img src="docs/assets/apps/notes-light.png" width="32" alt=""></picture> | **Notes** | read and write notes as Markdown, with checklists, tables and tags | [31](apps/notes/README.md) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/maps-dark.png"><img src="docs/assets/apps/maps-light.png" width="32" alt=""></picture> | **Maps** | search places, see opening hours, plan routes and travel times (read-only) | [6](apps/maps/README.md) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/weather-dark.png"><img src="docs/assets/apps/weather-light.png" width="32" alt=""></picture> | **Weather** | check the forecast hour by hour, air quality and severe-weather alerts; minute-by-minute rain in some countries | [10](apps/weather/README.md) |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/freeform-dark.png"><img src="docs/assets/apps/freeform-light.png" width="32" alt=""></picture> | **Freeform** | search every board, create boards, add text, links, images and files | [6](apps/freeform/README.md) |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/freeform-dark.png"><img src="docs/assets/apps/freeform-light.png" width="32" alt=""></picture> | **Freeform** | search and manage boards, author editable text, shapes, sticky notes, bound connectors and diagrams | [21](apps/freeform/README.md) |
 
 Every app is also a command-line tool, for example `calendar-cli agenda tomorrow`. Each app's README lists its commands.
 
@@ -93,7 +93,7 @@ Other good projects cover some of the same apps. Checked against each project's 
 | [Claude's Apple Notes connector](https://claude.com/connectors/read-and-write-apple-notes) | — | — | — | — / — | not stated | one click in Claude's directory | ✓ |
 
 - **What they do that Gesher doesn't:** RemCTL is Reminders only and goes further there (rich links, Groceries lists, urgent reminders, a notarized installer, a Reminders workspace in Codex), also through Apple's private ReminderKit. iMCP covers Messages, Mail and current location as well, and reads notes (tables included) from the Notes database without writing them. apple-mcp also covers Messages and Mail, and its Maps tools can save favorites and guides (Gesher's Maps is read-only). mcp-server-apple-events covers Reminders and Calendar with priorities, tags and subtasks. apple-notes-mcp is Notes only and goes deeper there in places (exports, audio transcripts, a query language); it does tags, checklists and tables through Apple Shortcuts and AppleScript. mcp-ical covers Calendar. Claude's connector lists, reads, adds and updates notes.
-- **Apps can stay closed:** AppleScript-based servers (apple-mcp, apple-notes-mcp) drive the app, so macOS opens it. RemCTL, iMCP (whose own menu-bar app runs), the EventKit-based servers (mcp-server-apple-events, mcp-ical) and Gesher don't need the app running; Gesher opens Freeform in the background only to add content to a board.
+- **Apps can stay closed:** AppleScript-based servers (apple-mcp, apple-notes-mcp) drive the app, so macOS opens it. RemCTL, iMCP (whose own menu-bar app runs), the EventKit-based servers (mcp-server-apple-events, mcp-ical) and Gesher don't need the app running; Gesher opens Freeform in the background only when importing files or links through its inbox.
 
 ## Good to know
 
