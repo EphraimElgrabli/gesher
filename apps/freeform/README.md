@@ -1,36 +1,57 @@
 # Freeform
 
-`freeform-cli` reads Freeform boards and their content, creates boards and adds text, links,
-images and files. Every command is also an MCP tool in `freeform-cli mcp`.
+`freeform-cli` reads, authors and edits Apple Freeform boards: native text boxes, shapes, sticky
+notes, bound connectors, structured diagrams, board lifecycle and media/file imports. Every command
+is also an MCP tool in `freeform-cli mcp`.
 
 ```sh
-freeform-cli doctor                              # Freeform version, Full Disk Access, store, model types
+freeform-cli doctor                                         # Freeform version, build UUID, FDA, authoring status
 freeform-cli boards list [--include-deleted] [--favorites]
-freeform-cli boards get 'Trip ideas'             # details + item count per type
-freeform-cli items list 'Trip ideas' [--type sticky]
-freeform-cli search 'packing list' [--type sticky] [--include-deleted]   # across all boards
-freeform-cli boards create 'Trip ideas' --text 'Flights' --url https://www.apple.com
-freeform-cli items add 'Trip ideas' --text 'Book flights' --file ~/Pictures/map.png
+freeform-cli boards get 'Trip ideas'                        # details, revision, coordinate system, counts per type
+freeform-cli boards create 'Architecture'
+freeform-cli boards rename 'Architecture' --title 'System Architecture'
+freeform-cli boards favorite 'System Architecture' [--off]
+freeform-cli boards delete 'Draft'                          # moves to Recently Deleted
+freeform-cli boards restore 'Draft'                         # restores from Recently Deleted
+freeform-cli items list 'System Architecture' [--type shape] [--limit 50] [--offset 0]
+freeform-cli search 'gateway' [--type shape] [--include-deleted]
+freeform-cli items add-text 'System Architecture' --text 'Overview' --x 100 --y 60 --width 260
+freeform-cli items add-shape 'System Architecture' --shape rounded_rectangle --text 'API' --x 100 --y 180 --fill '#3B82F6'
+freeform-cli items add-sticky 'System Architecture' --text 'Note' --x 420 --y 180 --fill yellow
+freeform-cli items connect 'System Architecture' --from <id1> --to <id2> --style orthogonal
+freeform-cli items update 'System Architecture' --item <id1> --x 140 --y 200 --fill green --text 'API Gateway'
+freeform-cli items delete 'System Architecture' --item <id1>
+freeform-cli items duplicate 'System Architecture' --item <id1> --dx 260 --dy 0
+freeform-cli items group 'System Architecture' --item <id1> --item <id2>
+freeform-cli items ungroup 'System Architecture' --group <groupId>
+freeform-cli items align 'System Architecture' --item <id1> --item <id2> --mode top
+freeform-cli diagram create 'System Architecture' --spec '{"direction":"left-right","nodes":[...],"edges":[...]}'
+freeform-cli items add 'Trip ideas' --url https://www.apple.com --file ~/Pictures/map.png
 ```
 
 - **How it reads.** Each call copies `boards.db` (+ `-wal`, `-shm`) into a new temporary
-  directory, reads the copy with SQLite and deletes it. The live store is never opened. Blobs are
-  Coherence CRDT documents; they are decoded by Coherence's exported `CRDT.init(serializedData:)`
-  into Freeform's own Swift model types (`CRLBoardCRDTData`, `CRLWPShapeItemCRDTData`, ...,
-  loaded from the app executable) and read with Swift reflection. Nothing is called by address.
-- **Items** carry `type` (text, shape, sticky, connector, image, file, link, table, drawing, movie,
-  group), `x`/`y`/`width`/`height` (points), `angle`, `text`, `fill`/`stroke` (`#RRGGBB[AA]`),
-  `url`, `file` (name), connector `from`/`to`, `z` (stacking order in its parent, 0 = back) and
-  `group` for items inside a group.
-- **How it writes.** `boards create` and `items add` use Freeform's own import inbox (the one its
-  Share extension uses): a directory with `Manifest.plist` and the files under
-  `Import/` in the group container. Freeform imports it immediately when running (otherwise
-  `freeform-cli` opens it in the background), creates the items with its own commands, saves and
-  syncs them with iCloud, and deletes the directory. The command then reads the store back and
-  returns the new board or items. Freeform chooses positions; images keep the name `image.<ext>`.
-  Hidden files and folders, `~/Library` (iCloud Drive excepted), system files and key or
-  credential files are refused; files for a board you share need `--confirm-shared`.
-- **Not available:** renaming, favoriting, deleting or restoring boards; editing, moving or
-  deleting items; adding shapes, sticky notes or connectors. Freeform's only writer is Swift-only
-  code in the app with no exported or Objective-C entry point, its App Intents need an
-  Apple-only entitlement, and raw database writes are out of scope (see RESEARCH.md).
+  directory, reads the copy with SQLite and deletes it. The live store is never opened for reads.
+  Blobs are Coherence CRDT documents decoded by Coherence's exported `CRDT.init(serializedData:)`
+  into Freeform's own Swift model types and read with Swift reflection.
+- **How native authoring works.** `items add-text`, `add-shape`, `add-sticky`, `connect`,
+  `update`, `delete`, `duplicate`, `group`, `ungroup`, `align`, `diagram create` and board
+  lifecycle commands (`boards rename`, `favorite`, `delete`, `restore`, and empty `boards create`)
+  run through Freeform's own in-process store and command engine (`CRLBoardDataStore`, `CRLBoard`,
+  `CRLBoardItemFactory`, `CRLCommandController`, `CRLCommand*`) and save through
+  `CRLBoard -asyncSavePendingChangesWithCompletionHandler:`. No raw SQLite writes are made.
+  - **Strict ABI gating:** the small set of unexported Swift bootstrap entry points is gated on the
+    exact Mach-O `LC_UUID` of the verified Freeform build plus ObjC class, selector and ivar checks.
+    An unrecognized Freeform build fails cleanly with `unsupported_private_api` while reads and the
+    import inbox continue to work.
+  - **Concurrency & safety:** native writes refuse to run while Freeform.app is open (`app_running`),
+    refuse participant-shared boards (`read_only`), refuse locked items unless explicitly unlocking
+    (`item_locked`), support optimistic concurrency via `--if-revision`, and verify every mutation
+    by reading back from a fresh store snapshot. Changes sync to iCloud the next time Freeform opens
+    (`sync: "pending_until_app_launch"`).
+- **How media/file imports work.** `items add` (and `boards create` with `--file`, `--url`,
+  `--folder`, or while Freeform is running) uses Freeform's import inbox (`Import/<UUID>/Manifest.plist`).
+  Hidden files, `~/Library` (iCloud Drive excepted), system files and key/credential files are refused;
+  files for a board you share need `--confirm-shared`.
+- **Out of scope / blocked:** participant writes to boards shared with you, collaboration invites
+  and live collaborator presence, table cell editing, freehand drawing authoring, PDF export,
+  folder write operations, and live iCloud push while Freeform is closed.
