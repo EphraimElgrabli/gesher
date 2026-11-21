@@ -28,6 +28,7 @@ lint:
 	xcrun swift-format lint --strict --recursive Package.swift core apps
 	@for f in install.sh scripts/*.sh scripts/gesher; do bash -n "$$f" || exit 1; done
 	@./scripts/test-connect.sh
+	@./scripts/test-updater.sh
 format:
 	xcrun swift-format format --in-place --recursive Package.swift core apps
 check: lint test release
