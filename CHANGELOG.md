@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0 — 2026-11-22
+
+- Freeform: native in-process board authoring and lifecycle through Freeform's own store and
+  command engine (`CRLBoardDataStore`, `CRLBoard`, `CRLBoardItemFactory`, `CRLCommandController`),
+  strictly gated on verified Freeform Mach-O build UUIDs. Adds 15 tools: `items_add_text`,
+  `items_add_shape`, `items_add_sticky`, `items_connect`, `items_update`, `items_delete`,
+  `items_duplicate`, `items_group`, `items_ungroup`, `items_align`, `diagram_create`,
+  `boards_rename`, `boards_favorite`, `boards_delete` and `boards_restore`, plus paginated
+  `items_list`, optimistic concurrency (`ifRevision`) and `doctor` authoring/capability reporting.
+  Freeform: 21 tools, 134 in all.
+
 ## 1.1.0 — 2026-11-17
 
 - Notes: `table_add_row` and `table_add_column` add a row or column to an existing table, at the

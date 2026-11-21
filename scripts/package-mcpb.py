@@ -24,7 +24,7 @@ APPS = {
     "notes": ("Notes", "Apple Notes on macOS as Markdown: folders, checklists, tables, tags and attachments."),
     "maps": ("Maps", "Apple Maps on macOS, read-only: place search, details, opening hours, routes and travel times."),
     "weather": ("Weather", "Apple Weather on macOS: forecasts, next-hour rain, severe-weather alerts, air quality, places."),
-    "freeform": ("Freeform", "Apple Freeform on macOS: read and search boards, create boards, add text, links and files."),
+    "freeform": ("Freeform", "Apple Freeform on macOS: read, author and edit boards, shapes, stickies, connectors and diagrams."),
 }
 # Apps whose servers send queries to Apple's online services.
 ONLINE = {"maps", "weather"}

@@ -23,7 +23,7 @@
 
 ## Install
 
-- **Claude Desktop, one app at a time:** download `gesher-<app>-1.1.0.mcpb` from the [latest release](https://github.com/EphraimElgrabli/gesher/releases/latest) and open it; Claude Desktop installs it as an extension. Each bundle holds one app, and macOS asks for its permission again after each update.
+- **Claude Desktop, one app at a time:** download `gesher-<app>-1.2.0.mcpb` from the [latest release](https://github.com/EphraimElgrabli/gesher/releases/latest) and open it; Claude Desktop installs it as an extension. Each bundle holds one app, and macOS asks for its permission again after each update.
 - **Let your agent do it:** paste this into Claude Code, Codex or Cursor:
 
   ```text
