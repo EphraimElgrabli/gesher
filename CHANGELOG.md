@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.2 — 2026-11-22
+
+- Freeform: adds automatic Quick Refresh (enabled by default) when Freeform has an open window.
+  Native writes validate the board on a read-only snapshot first, gracefully close Freeform so
+  unsaved edits flush, apply and verify the write, and immediately reopen Freeform directly to the
+  edited board (`freeform://board?id=<UUID>`) without stealing keyboard focus (`sync: "live_refreshed"`).
+  Closed or background-idle Freeform stays completely silent; disable via `GESHER_FREEFORM_LIVE_REFRESH=0`
+  or `{"freeform": {"liveRefresh": "off"}}` in `~/.config/gesher/config.json`.
+
 ## 1.3.1 — 2026-11-22
 
 - Cross-generational macOS compatibility: adds `OSGeneration`, `ABIResolutionMode`, ordered
