@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GesherPlatform
 
@@ -196,6 +197,87 @@ public enum FreeformZOrderTarget: Sendable, Equatable {
     }
 }
 
+public enum FreeformTextAlignment: String, Sendable, CaseIterable {
+    case left
+    case center
+    case right
+    case justified
+
+    var nsAlignment: NSTextAlignment {
+        switch self {
+        case .left: return .left
+        case .center: return .center
+        case .right: return .right
+        case .justified: return .justified
+        }
+    }
+
+    public static func parse(_ raw: String) throws -> FreeformTextAlignment {
+        guard
+            let value = FreeformTextAlignment(
+                rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        else {
+            throw AgentError.invalid("Unknown alignment '\(raw)'.", hint: "Use left, center, right or justified.")
+        }
+        return value
+    }
+}
+
+/// Rich text styling applied to text boxes and sticky notes via `NSAttributedString`.
+public struct FreeformTextStyle: Sendable {
+    public var fontSize: Double?
+    public var bold: Bool
+    public var italic: Bool
+    public var underline: Bool
+    public var strikethrough: Bool
+    public var color: FreeformColor?
+    public var alignment: FreeformTextAlignment?
+
+    public init(
+        fontSize: Double? = nil, bold: Bool = false, italic: Bool = false, underline: Bool = false,
+        strikethrough: Bool = false, color: FreeformColor? = nil, alignment: FreeformTextAlignment? = nil
+    ) {
+        self.fontSize = fontSize
+        self.bold = bold
+        self.italic = italic
+        self.underline = underline
+        self.strikethrough = strikethrough
+        self.color = color
+        self.alignment = alignment
+    }
+
+    public var hasStyling: Bool {
+        fontSize != nil || bold || italic || underline || strikethrough || color != nil || alignment != nil
+    }
+
+    func attributedString(for text: String) -> NSAttributedString {
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        let size = CGFloat(fontSize ?? 18)
+        var font = bold ? NSFont.boldSystemFont(ofSize: size) : NSFont.systemFont(ofSize: size)
+        if italic {
+            font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+        }
+        attributes[.font] = font
+        if underline { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+        if strikethrough { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+        if let color {
+            attributes[.foregroundColor] = NSColor(
+                srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+        }
+        let para = NSMutableParagraphStyle()
+        if let alignment { para.alignment = alignment.nsAlignment }
+        if Self.containsRTL(text) { para.baseWritingDirection = .rightToLeft }
+        attributes[.paragraphStyle] = para
+        return NSAttributedString(string: text, attributes: attributes)
+    }
+
+    private static func containsRTL(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            (0x0590...0x05FF).contains(scalar.value) || (0x0600...0x06FF).contains(scalar.value)
+        }
+    }
+}
+
 public struct FreeformTextSpec: Sendable {
     public var text: String
     public var x: Double
@@ -203,9 +285,11 @@ public struct FreeformTextSpec: Sendable {
     public var width: Double?
     public var height: Double?
     public var angle: Double
+    public var style: FreeformTextStyle?
 
     public init(
-        text: String, x: Double = 100, y: Double = 100, width: Double? = nil, height: Double? = nil, angle: Double = 0
+        text: String, x: Double = 100, y: Double = 100, width: Double? = nil, height: Double? = nil, angle: Double = 0,
+        style: FreeformTextStyle? = nil
     ) {
         self.text = text
         self.x = x
@@ -213,6 +297,7 @@ public struct FreeformTextSpec: Sendable {
         self.width = width
         self.height = height
         self.angle = angle
+        self.style = style
     }
 }
 
@@ -256,10 +341,11 @@ public struct FreeformStickySpec: Sendable {
     public var height: Double
     public var angle: Double
     public var fill: FreeformColor?
+    public var style: FreeformTextStyle?
 
     public init(
         text: String, x: Double = 100, y: Double = 100, width: Double = 200, height: Double = 200, angle: Double = 0,
-        fill: FreeformColor? = nil
+        fill: FreeformColor? = nil, style: FreeformTextStyle? = nil
     ) {
         self.text = text
         self.x = x
@@ -268,6 +354,7 @@ public struct FreeformStickySpec: Sendable {
         self.height = height
         self.angle = angle
         self.fill = fill
+        self.style = style
     }
 }
 
@@ -374,6 +461,7 @@ public enum FreeformExportFormat: String, Sendable, CaseIterable {
 public struct FreeformTableSpec: Sendable {
     public var rows: Int
     public var columns: Int
+    public var cells: [[String]]?
     public var x: Double
     public var y: Double
     public var width: Double
@@ -381,17 +469,32 @@ public struct FreeformTableSpec: Sendable {
     public var rtl: Bool
 
     public init(
-        rows: Int = 3, columns: Int = 3, x: Double = 100, y: Double = 100, width: Double = 420, height: Double = 220,
-        rtl: Bool = false
+        rows: Int = 3, columns: Int = 3, cells: [[String]]? = nil, x: Double = 100, y: Double = 100,
+        width: Double = 420,
+        height: Double = 220, rtl: Bool = false
     ) {
         self.rows = rows
         self.columns = columns
+        self.cells = cells
         self.x = x
         self.y = y
         self.width = width
         self.height = height
         self.rtl = rtl
     }
+}
+
+public struct FreeformTableSnapshot: Sendable, Equatable {
+    public let id: String
+    public let rows: Int
+    public let columns: Int
+    public let rtl: Bool
+    public let cells: [[String]]
+}
+
+public struct FreeformTableResult: Sendable {
+    public let board: FreeformBoardSnapshot
+    public let table: FreeformTableSnapshot
 }
 
 public struct FreeformSceneSnapshot: Sendable, Equatable {
@@ -492,25 +595,37 @@ public struct FreeformDiagramResult: Sendable {
 public final class FreeformWriter: @unchecked Sendable {
     public let store: FreeformStore
     private let isAppRunning: () -> Bool
+    private let hasVisibleWindows: () -> Bool
+    private let terminateApp: () -> Bool
     private let bridgeFactory: () throws -> FreeformNativeBridge
 
     public init(
         store: FreeformStore,
         isAppRunning: @escaping () -> Bool = { FreeformImporter.isAppRunning },
+        hasVisibleWindows: @escaping () -> Bool = { FreeformImporter.hasVisibleWindows },
+        terminateApp: @escaping () -> Bool = { FreeformImporter.terminateApp() },
         bridge: @escaping () throws -> FreeformNativeBridge = { try FreeformNativeBridge.load() }
     ) {
         self.store = store
         self.isAppRunning = isAppRunning
+        self.hasVisibleWindows = hasVisibleWindows
+        self.terminateApp = terminateApp
         self.bridgeFactory = bridge
     }
 
     /// Validates that native writes can safely proceed against the store.
+    /// If Freeform is running idle in the background with no visible windows, closes it cleanly so
+    /// agents do not get blocked unnecessarily while active user windows are never interrupted.
     private func requireWritableLocation() throws -> FreeformStoreLocation {
-        guard !isAppRunning() else {
-            throw AgentError(
-                code: "app_running",
-                message: "Freeform is currently open; native board writes require Freeform to be closed.",
-                hint: "Quit Freeform and retry so changes do not conflict with open windows.")
+        if isAppRunning() {
+            if !hasVisibleWindows(), terminateApp() {
+                // Idle background process closed cleanly without affecting any user window.
+            } else {
+                throw AgentError(
+                    code: "app_running",
+                    message: "Freeform has an open window; native board writes require Freeform to be closed.",
+                    hint: "Close or quit Freeform and retry so changes do not conflict with open windows.")
+            }
         }
         return try store.requireLocation()
     }
@@ -636,6 +751,27 @@ public final class FreeformWriter: @unchecked Sendable {
         return FreeformBoardWriteResult(board: readback)
     }
 
+    public func setBoardAppearance(selector: String, dotGrid: Bool?, connectorMode: Bool?) throws
+        -> FreeformBoardWriteResult
+    {
+        guard dotGrid != nil || connectorMode != nil else {
+            throw AgentError.invalid("Specify --dot-grid and/or --connector-mode.")
+        }
+        let (location, _, boardUUID) = try requireBoardForWrite(selector)
+        let bridge = try bridgeFactory()
+        let boardsDir = location.database.deletingLastPathComponent()
+        try bridge.withStore(at: boardsDir) { nativeStore in
+            if let dotGrid {
+                try bridge.setCanvasDotGrid(in: nativeStore, boardID: boardUUID, visible: dotGrid)
+            }
+            if let connectorMode {
+                try bridge.setConnectorMode(in: nativeStore, boardID: boardUUID, enabled: connectorMode)
+            }
+        }
+        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+        return FreeformBoardWriteResult(board: readback)
+    }
+
     public func deleteBoard(selector: String, ifRevision: String? = nil) throws -> FreeformBoardWriteResult {
         let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision, exactName: true)
         let bridge = try bridgeFactory()
@@ -692,7 +828,13 @@ public final class FreeformWriter: @unchecked Sendable {
             let root = bridge.getObject(board, "rootContainer")!
             let factory = bridge.makeFactory(for: board)
             let cc = bridge.makeCommandController(for: board)
-            let item = bridge.makeTextbox(factory: factory, position: CGPoint(x: spec.x, y: spec.y), text: spec.text)
+            let item: AnyObject
+            if let style = spec.style, style.hasStyling {
+                item = bridge.makeAttributedTextbox(
+                    factory: factory, attributedText: style.attributedString(for: spec.text))
+            } else {
+                item = bridge.makeTextbox(factory: factory, position: CGPoint(x: spec.x, y: spec.y), text: spec.text)
+            }
             guard let id = bridge.itemUUIDString(item) else {
                 throw PlatformError.saveFailed("New text box did not have an identifier.")
             }
@@ -784,7 +926,9 @@ public final class FreeformWriter: @unchecked Sendable {
             let root = bridge.getObject(board, "rootContainer")!
             let factory = bridge.makeFactory(for: board)
             let cc = bridge.makeCommandController(for: board)
-            let item = bridge.makeSticky(factory: factory, text: spec.text)
+            let attributed =
+                spec.style?.attributedString(for: spec.text) ?? NSAttributedString(string: spec.text)
+            let item = bridge.makeSticky(factory: factory, attributedText: attributed)
             guard let id = bridge.itemUUIDString(item) else {
                 throw PlatformError.saveFailed("New sticky note did not have an identifier.")
             }
@@ -1028,7 +1172,9 @@ public final class FreeformWriter: @unchecked Sendable {
     public func addTable(board selector: String, spec: FreeformTableSpec, ifRevision: String? = nil) throws
         -> FreeformItemWriteResult
     {
-        guard (1...50).contains(spec.rows), (1...25).contains(spec.columns) else {
+        let effectiveRows = max(spec.cells?.count ?? spec.rows, 1)
+        let effectiveCols = max(spec.cells?.map(\.count).max() ?? spec.columns, 1)
+        guard (1...50).contains(effectiveRows), (1...25).contains(effectiveCols) else {
             throw AgentError.invalid("Table dimensions must be between 1x1 and 50x25.")
         }
         try validateFinite(spec.x, name: "x")
@@ -1039,16 +1185,16 @@ public final class FreeformWriter: @unchecked Sendable {
         let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
         let bridge = try bridgeFactory()
         let boardsDir = location.database.deletingLastPathComponent()
+        let cellGrid =
+            spec.cells ?? Array(repeating: Array(repeating: "", count: effectiveCols), count: effectiveRows)
         let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
             let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
             let root = bridge.getObject(board, "rootContainer")!
             let factory = bridge.makeFactory(for: board)
             let cc = bridge.makeCommandController(for: board)
             let geom = bridge.makeGeometry(x: spec.x, y: spec.y, width: spec.width, height: spec.height)
-            let table = bridge.makeTable(factory: factory, rows: spec.rows, columns: spec.columns, geometry: geom)
-            if spec.rtl {
-                bridge.sendVoidBool(table, "setIsRTL:", true)
-            }
+            let table = try bridge.makePopulatedTable(
+                factory: factory, cells: cellGrid, geometry: geom, rtl: spec.rtl)
             guard let id = bridge.itemUUIDString(table) else {
                 throw PlatformError.saveFailed("New table did not have an identifier.")
             }
@@ -1064,6 +1210,67 @@ public final class FreeformWriter: @unchecked Sendable {
                 type: "table", id: createdID, reason: "Table did not appear on readback.")
         }
         return FreeformItemWriteResult(board: readback, item: item)
+    }
+
+    /// Reads the rows, columns and cell contents of a table item on a read-only copy of the store.
+    public func getTable(board selector: String, itemID: String) throws -> FreeformTableResult {
+        guard let tableUUID = UUID(uuidString: itemID) else {
+            throw AgentError.invalid("Invalid table item UUID '\(itemID)'.")
+        }
+        let location = try store.requireLocation()
+        let board = try store.withSnapshot(location) { snapshot in
+            try EntityResolver.resolve(
+                selector, in: try snapshot.boards(includeDeleted: true), type: "board", id: \.id,
+                name: { $0.title ?? "" }, detail: { $0.lastActivityAt.map { DateOutput.iso($0) } })
+        }
+        guard let boardUUID = UUID(uuidString: board.id) else {
+            throw AgentError.notFound("board", board.id)
+        }
+        let bridge = try bridgeFactory()
+        let snapshot = try withReadOnlyStoreCopy(at: location) { copyDir in
+            try bridge.withStore(at: copyDir) { nativeStore in
+                let nativeBoard = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                guard let item = bridge.getObjectArg(nativeBoard, "getBoardItemForUUID:", tableUUID as NSUUID) else {
+                    throw AgentError.notFound("table", itemID)
+                }
+                guard item.responds(to: NSSelectorFromString("rowCount")) else {
+                    throw AgentError.invalid("Item '\(itemID)' is not a table.")
+                }
+                return bridge.readTable(item)
+            }
+        }
+        return FreeformTableResult(board: board, table: snapshot)
+    }
+
+    /// Updates a single cell's text inside an existing Freeform table in place (preserves table UUID).
+    public func setTableCell(
+        board selector: String, itemID: String, row: Int, column: Int, text: String, ifRevision: String? = nil
+    ) throws -> FreeformTableResult {
+        guard let tableUUID = UUID(uuidString: itemID) else {
+            throw AgentError.invalid("Invalid table item UUID '\(itemID)'.")
+        }
+        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
+        let bridge = try bridgeFactory()
+        let boardsDir = location.database.deletingLastPathComponent()
+        let updatedTable = try bridge.withStore(at: boardsDir) { nativeStore -> FreeformTableSnapshot in
+            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+            guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", tableUUID as NSUUID) else {
+                throw AgentError.notFound("table", itemID)
+            }
+            guard item.responds(to: NSSelectorFromString("rowCount")) else {
+                throw AgentError.invalid("Item '\(itemID)' is not a table.")
+            }
+            try requireUnlocked(item, id: itemID, bridge: bridge)
+            let cmd = try bridge.makeSetTableCellCommand(tableItem: item, row: row, column: column, text: text)
+            let cc = bridge.makeCommandController(for: board)
+            bridge.withCommandGroup(on: cc) {
+                bridge.enqueue(cmd, on: cc)
+            }
+            try bridge.saveBoard(board)
+            return bridge.readTable(item)
+        }
+        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+        return FreeformTableResult(board: readback, table: updatedTable)
     }
 
     /// Copies the store to a temporary directory and renders a board via Freeform's own `CRLCanvasImager`
@@ -1557,7 +1764,8 @@ public final class FreeformWriter: @unchecked Sendable {
                         item = bridge.makeTextbox(
                             factory: factory, position: CGPoint(x: node.x, y: node.y), text: node.text ?? "")
                     case .sticky:
-                        item = bridge.makeSticky(factory: factory, text: node.text ?? "")
+                        item = bridge.makeSticky(
+                            factory: factory, attributedText: NSAttributedString(string: node.text ?? ""))
                     case .shape(let shapeKind):
                         item = bridge.makeShape(factory: factory, shapeType: shapeKind.nativeShapeType)
                     }

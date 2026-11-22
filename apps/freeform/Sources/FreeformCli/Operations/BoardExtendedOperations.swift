@@ -198,3 +198,55 @@ enum DeleteScene: AgentOperation {
             deletedScene: input.scene, sync: "pending_until_app_launch")
     }
 }
+
+enum SetBoardAppearance: AgentOperation {
+    struct Input: Decodable, Sendable {
+        var board: String
+        var dotGrid: Bool?
+        var connectorMode: Bool?
+    }
+
+    static let path = ["boards", "appearance"]
+    static let summary = "Configure a board's persistent canvas dot grid and connector-mode settings."
+    static let effect = OperationEffect.write
+    static let idempotent = true
+    static let params: [Param] = [
+        .string("board", "Board title or id.", required: true, positional: true),
+        Param("dotGrid", .boolean, "Show (true) or hide (false) the canvas dot grid."),
+        Param("connectorMode", .boolean, "Enable (true) or disable (false) connector mode."),
+    ]
+    static let examples = [
+        "boards appearance 'Architecture' --dot-grid false --connector-mode true"
+    ]
+
+    static func validate(_ input: Input) throws {
+        guard input.dotGrid != nil || input.connectorMode != nil else {
+            throw AgentError.invalid("Specify --dot-grid and/or --connector-mode.")
+        }
+    }
+
+    static func run(_ input: Input, _ context: FreeformContext) throws -> BoardMutationOutput {
+        let result = try context.writer.setBoardAppearance(
+            selector: input.board, dotGrid: input.dotGrid, connectorMode: input.connectorMode)
+        return BoardMutationOutput(board: Board(result.board), sync: "pending_until_app_launch")
+    }
+}
+
+enum SyncBoards: AgentOperation {
+    static let path = ["boards", "sync"]
+    static let summary =
+        "Quietly launch Freeform hidden in the background so pending local edits sync to iCloud without interrupting windows."
+    static let effect = OperationEffect.write
+    static let params: [Param] = []
+    static let examples = ["boards sync"]
+
+    static func run(_ input: NoInput, _ context: FreeformContext) throws -> SyncOutput {
+        let wasRunning = FreeformImporter.isAppRunning
+        if !wasRunning {
+            try context.launchApp()
+        }
+        return SyncOutput(
+            launched: !wasRunning, running: true, hidden: !wasRunning,
+            status: wasRunning ? "already_running" : "launched_hidden_for_sync")
+    }
+}

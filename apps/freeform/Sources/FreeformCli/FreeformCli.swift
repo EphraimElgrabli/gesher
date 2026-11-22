@@ -25,10 +25,13 @@ enum FreeformApp {
                 items_list read a temporary copy of the store (titles, folders, favorites, item text, \
                 positions, sizes, colors, stacking order, connector endpoints, revisions); search finds text, \
                 links and file names across boards. Native authoring (items_add_text, items_add_shape, \
-                items_add_sticky, items_connect, items_update, items_delete, items_duplicate, items_group, \
-                items_ungroup, items_align, diagram_create, boards_rename, boards_favorite, boards_delete, \
-                boards_restore) writes through Freeform's own command engine while Freeform is closed and \
-                verifies every change on readback; changes sync to iCloud the next time Freeform opens. \
+                items_add_sticky, items_add_table, items_table_set_cell, items_connect, items_update, \
+                items_delete, items_duplicate, items_group, items_ungroup, items_align, diagram_create, \
+                boards_rename, boards_favorite, boards_appearance, boards_delete, boards_restore) writes \
+                through Freeform's own command engine and verifies every change on readback. If Freeform is \
+                running idle in the background with no visible windows, Gesher closes it quietly before \
+                writing; call boards_sync afterward to launch Freeform hidden for iCloud sync. Read-only \
+                native tools (items_table_get, scenes_list, boards_export) work even while Freeform is open. \
                 Pass ifRevision from boards_get or items_list to guard against concurrent edits. items_add \
                 and boards_create with files/urls use Freeform's import inbox.
                 """,
@@ -42,9 +45,11 @@ enum FreeformApp {
                 AnyOperation(CreateBoard.self),
                 AnyOperation(RenameBoard.self),
                 AnyOperation(FavoriteBoard.self),
+                AnyOperation(SetBoardAppearance.self),
                 AnyOperation(DeleteBoard.self),
                 AnyOperation(RestoreBoard.self),
                 AnyOperation(ExportBoard.self),
+                AnyOperation(SyncBoards.self),
                 AnyOperation(ListFolders.self),
                 AnyOperation(ListScenes.self),
                 AnyOperation(CreateScene.self),
@@ -55,6 +60,8 @@ enum FreeformApp {
                 AnyOperation(AddShapeItem.self),
                 AnyOperation(AddStickyItem.self),
                 AnyOperation(AddTableItem.self),
+                AnyOperation(GetTable.self),
+                AnyOperation(SetTableCell.self),
                 AnyOperation(ConnectItems.self),
                 AnyOperation(UpdateItem.self),
                 AnyOperation(DeleteItems.self),
@@ -83,7 +90,8 @@ final class FreeformContext {
         store: FreeformStore = FreeformStore(), importer: FreeformImporter? = nil,
         writer: FreeformWriter? = nil,
         authoringAvailable: @escaping () -> Bool = {
-            !FreeformImporter.isAppRunning && FreeformNativeBridge.status().isAvailable
+            (!FreeformImporter.isAppRunning || !FreeformImporter.hasVisibleWindows)
+                && FreeformNativeBridge.status().isAvailable
         },
         launchApp: @escaping () throws -> Void = { try FreeformImporter.launchAppIfNeeded() },
         importTimeout: TimeInterval = 45
@@ -137,8 +145,11 @@ enum FreeformDoctor: AgentOperation {
         case .unavailable: buildUUID = nil
         }
         let running = FreeformImporter.isAppRunning
+        let visibleWindows = running && FreeformImporter.hasVisibleWindows
+        let abiResolution = (try? FreeformNativeBridge.load())?.resolutionMode.rawValue
         let authoringLabel =
-            authoringStatus.isAvailable ? (running ? "native_paused_app_running" : "native") : authoringStatus.label
+            authoringStatus.isAvailable
+            ? (visibleWindows ? "native_paused_app_running" : "native") : authoringStatus.label
         let hint: String? =
             !readable
             ? "Give the app that runs freeform-cli Full Disk Access (System Settings > Privacy & Security), then restart it."
@@ -148,15 +159,18 @@ enum FreeformDoctor: AgentOperation {
                     ? "This Freeform version's model is not supported; reads may omit fields."
                     : !authoringStatus.isAvailable
                         ? "Native authoring is gated on verified Freeform builds; reads and import-inbox writes still work."
-                        : running
-                            ? "Quit Freeform before running native authoring or board lifecycle commands." : nil
+                        : visibleWindows
+                            ? "Close or quit Freeform windows before running native authoring commands." : nil
         return DoctorOutput(
             app: "freeform", version: AgentApp<FreeformContext>.version,
             os: ProcessInfo.processInfo.operatingSystemVersionString,
+            osGeneration: OSGeneration.current.description,
             freeform: app?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             freeformBuild: app?.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
             buildUUID: buildUUID,
+            abiResolution: abiResolution,
             freeformRunning: running,
+            freeformHasVisibleWindows: visibleWindows,
             permission: PermissionCoordinator().inspect(service: .fullDiskAccess).permission,
             groupContainerReadable: readable, store: location?.kind.rawValue,
             storeModifiedAt: location.flatMap { lastModified($0.database) }.map { DateOutput.iso($0) }, model: model,
@@ -165,7 +179,9 @@ enum FreeformDoctor: AgentOperation {
                 supported: authoringStatus.isAvailable
                     ? [
                         "boards_read", "items_read_paginated", "search", "import_inbox_media_links",
-                        "folders_read", "native_pdf_png_export", "native_scenes_crud", "native_tables_create",
+                        "folders_read", "native_pdf_png_export", "native_scenes_crud",
+                        "native_table_cells_read_write", "rich_text_styling", "board_appearance",
+                        "idle_background_auto_close", "quiet_background_sync",
                         "native_text_shape_sticky", "native_bound_connectors", "native_update_move_style_delete",
                         "item_descriptions_and_replace_shape",
                         "native_group_duplicate_align", "native_diagram_batch",
@@ -173,7 +189,7 @@ enum FreeformDoctor: AgentOperation {
                     ]
                     : ["boards_read", "folders_read", "items_read_paginated", "search", "import_inbox_media_links"],
                 blocked: [
-                    "shared_board_participant_writes", "collaboration_invites_and_presence", "table_cell_editing",
+                    "shared_board_participant_writes", "collaboration_invites_and_presence",
                     "freehand_drawing_authoring", "folders_write", "live_icloud_push_while_closed",
                 ]),
             hint: hint)
@@ -190,11 +206,14 @@ struct DoctorOutput: Encodable, Sendable {
     let app: String
     let version: String
     let os: String
+    let osGeneration: String
     /// Installed Freeform version; nil when Freeform is not installed.
     let freeform: String?
     let freeformBuild: String?
     let buildUUID: String?
+    let abiResolution: String?
     let freeformRunning: Bool
+    let freeformHasVisibleWindows: Bool
     /// Full Disk Access, named `permission` like every other app's doctor.
     let permission: String
     let groupContainerReadable: Bool

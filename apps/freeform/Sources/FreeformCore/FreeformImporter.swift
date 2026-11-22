@@ -115,11 +115,47 @@ public final class FreeformImporter: @unchecked Sendable {
         !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty
     }
 
+    /// True when Freeform has at least one normal on-screen window (ignoring menu-bar/background helper layers).
+    public static var hasVisibleWindows: Bool {
+        let apps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+        let pids = Set(apps.map(\.processIdentifier))
+        guard !pids.isEmpty else { return false }
+        guard
+            let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]]
+        else { return true }
+        for info in list {
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t, pids.contains(pid) else { continue }
+            let layer = info[kCGWindowLayer as String] as? Int ?? 0
+            guard layer == 0 else { continue }
+            if let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                let w = bounds["Width"] as? Double, let h = bounds["Height"] as? Double, w > 50, h > 50
+            {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Gracefully terminates Freeform and waits until it exits. Returns true when Freeform is no longer running.
+    @discardableResult
+    public static func terminateApp(timeout: TimeInterval = 6) -> Bool {
+        let apps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+        guard !apps.isEmpty else { return true }
+        for app in apps { _ = app.terminate() }
+        let deadline = Date().addingTimeInterval(timeout)
+        while isAppRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.15)
+        }
+        return !isAppRunning
+    }
+
     /// Opens Freeform in the background when it is not running (it imports pending content at launch).
     public static func launchAppIfNeeded() throws {
         guard !isAppRunning else { return }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
+        configuration.hides = true
         let app = URL(fileURLWithPath: FreeformModelRuntime.appPath)
         let done = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var failure: Error?

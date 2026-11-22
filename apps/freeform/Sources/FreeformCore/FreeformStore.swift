@@ -34,11 +34,15 @@ public struct FreeformBoardSnapshot: Sendable, Equatable {
     public let itemCount: Int
     /// Deterministic content revision of the board and its live items for optimistic concurrency.
     public let revision: String?
+    /// Persistent canvas dot-grid preference from `boards_metadata.crdt_data`.
+    public let dotGrid: Bool?
+    /// Persistent connector-mode preference from `boards_metadata.crdt_data`.
+    public let connectorMode: Bool?
 
     public init(
         id: String, title: String?, favorite: Bool, folderID: String?, folder: String?, deleted: Bool,
         deletedAt: Date?, createdAt: Date?, lastActivityAt: Date?, sharing: Sharing?, rootContainerID: String?,
-        itemCount: Int, revision: String? = nil
+        itemCount: Int, revision: String? = nil, dotGrid: Bool? = nil, connectorMode: Bool? = nil
     ) {
         self.id = id
         self.title = title
@@ -53,6 +57,8 @@ public struct FreeformBoardSnapshot: Sendable, Equatable {
         self.rootContainerID = rootContainerID
         self.itemCount = itemCount
         self.revision = revision
+        self.dotGrid = dotGrid
+        self.connectorMode = connectorMode
     }
 }
 
@@ -309,7 +315,9 @@ public final class FreeformSnapshot {
                 selector: "boards", reason: "This Freeform version uses an unknown board table layout.")
         }
         func column(_ name: String) -> String { boardColumns.contains(name) ? "b.\(name)" : "NULL" }
-        let favorite = db.columns("boards_metadata").contains("is_favorite") ? "m.is_favorite" : "NULL"
+        let metaColumns = db.columns("boards_metadata")
+        let favorite = metaColumns.contains("is_favorite") ? "m.is_favorite" : "NULL"
+        let metaCRDT = metaColumns.contains("crdt_data") ? "m.crdt_data" : "NULL"
         let folders = Dictionary(folders().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let counts =
             db.columns("board_items").isSuperset(of: ["board_identifier", "tombstoned", "parent_uuid"])
@@ -318,7 +326,7 @@ public final class FreeformSnapshot {
         let query = """
             SELECT b.board_identifier, b.data, \(column("last_activity_time")), \(column("tombstoned")),
                    \(column("tombstone_date")), \(column("hide_from_recently_deleted")), \(column("parent_identifier")),
-                   \(favorite), \(column("ckshare_data")), \(column("owner_name")), \(counts)
+                   \(favorite), \(column("ckshare_data")), \(column("owner_name")), \(counts), \(metaCRDT)
             FROM boards b LEFT JOIN boards_metadata m ON m.board_identifier = b.board_identifier
             """
         return db.rows(query).compactMap { row -> FreeformBoardSnapshot? in
@@ -327,6 +335,7 @@ public final class FreeformSnapshot {
             let purged = (row[5] as? Int64 ?? 0) != 0
             if deleted && (purged || !includeDeleted) { return nil }
             let data = (row[1] as? Data).flatMap { decoder.decode(.board, $0) }
+            let meta = (row[11] as? Data).flatMap { decoder.decode(.boardMetadata, $0) }
             let folderID = (row[6] as? Data).map(SQLiteSnapshot.identifier)
             let lastActivity =
                 (row[2] as? Double).flatMap(SQLiteSnapshot.date)
@@ -345,7 +354,11 @@ public final class FreeformSnapshot {
                 itemCount: Int(row[10] as? Int64 ?? 0),
                 revision: boardRevision(
                     boardID: identifier, boardData: row[1] as? Data, favorite: (row[7] as? Int64 ?? 0) != 0,
-                    deleted: deleted))
+                    deleted: deleted),
+                dotGrid: meta?.first(
+                    "isCanvasDotGridEnabled", "isCanvasDotGridVisible", "canvasDotGridVisible", "isDotGridVisible"
+                )?.bool,
+                connectorMode: meta?.first("isConnectorModeEnabled", "connectorModeEnabled")?.bool)
         }.sorted { ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast) }
     }
 

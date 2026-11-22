@@ -46,11 +46,50 @@ public final class FreeformNativeBridge: @unchecked Sendable {
         let appendPendingChanges: UInt
         let transactionCommitVtableOffset: Int
         let setFavorite: UInt
+        let setCanvasDotGrid: UInt
+        let setConnectorMode: UInt
         let deleteBoard: UInt
         let undeleteBoard: UInt
         let boardCRDTDataMetadataAccessor: UInt
         let insertStyleCopyHelper: UInt
         let insertStyleTypeAccessor: UInt
+    }
+
+    /// Structural anchors resolvable across macOS/Freeform generations without hardcoded offsets.
+    public struct DiscoveredAnchors: Sendable, Equatable {
+        public let fetchBoards: UInt
+        public let setFavorite: UInt
+        public let setCanvasDotGrid: UInt
+        public let setConnectorMode: UInt
+        public let deleteBoard: UInt
+        public let undeleteBoard: UInt
+        public let appendPendingChanges: UInt
+    }
+
+    /// Dynamically locates the string-anchored CRLBoardDataStore/CRLBoardChangeSet functions in any
+    /// loaded Freeform Mach-O image. Returns nil unless every single anchor resolves uniquely.
+    public static func discoverAnchors(imageBase: UInt) -> DiscoveredAnchors? {
+        guard let header = UnsafeRawPointer(bitPattern: imageBase),
+            let scanner = MachOAnchorScanner(imageHeader: header)
+        else { return nil }
+        guard
+            let fetchBoards = scanner.findFunctionByUniqueString(
+                "Failed to fetch boardAndContainerData for board %{public}@"),
+            let setFavorite = scanner.findFunctionByUniqueString(
+                "Set favorite status to [%{public}@] for board identifier: %{public}@"),
+            let setCanvasDotGrid = scanner.findFunctionByUniqueString(
+                "Set canvas dot grid visible to [%{public}@] for board identifier: %{public}@"),
+            let setConnectorMode = scanner.findFunctionByUniqueString(
+                "Set connector mode enabled to [%{public}@] for board identifier: %{public}@"),
+            let deleteBoard = scanner.findFunctionByUniqueString("Failed to mark board as deleted"),
+            let undeleteBoard = scanner.findFunctionByUniqueString("Failed to reset board deletion"),
+            let appendPendingChanges = scanner.findFunctionByUniqueString(
+                "Pending changes should only come from closed transactions.")
+        else { return nil }
+        return DiscoveredAnchors(
+            fetchBoards: fetchBoards, setFavorite: setFavorite, setCanvasDotGrid: setCanvasDotGrid,
+            setConnectorMode: setConnectorMode, deleteBoard: deleteBoard, undeleteBoard: undeleteBoard,
+            appendPendingChanges: appendPendingChanges)
     }
 
     /// Only builds whose exact Mach-O LC_UUID has been verified are allowed to execute Swift bootstrap calls.
@@ -68,6 +107,8 @@ public final class FreeformNativeBridge: @unchecked Sendable {
             appendPendingChanges: 0x6deb78,
             transactionCommitVtableOffset: 0x2f8,
             setFavorite: 0x80c390,
+            setCanvasDotGrid: 0x80f1c4,
+            setConnectorMode: 0x80f878,
             deleteBoard: 0x7fe608,
             undeleteBoard: 0x800dbc,
             boardCRDTDataMetadataAccessor: 0xde3594,
@@ -82,6 +123,7 @@ public final class FreeformNativeBridge: @unchecked Sendable {
     let base: UInt
     let buildUUID: String
     let offsets: Offsets
+    public let resolutionMode: ABIResolutionMode
     private let msgSend: UnsafeMutableRawPointer
     private let msgSendSuper2: UnsafeMutableRawPointer
 
@@ -108,6 +150,7 @@ public final class FreeformNativeBridge: @unchecked Sendable {
     let setPathSourceCommandClass: AnyClass
     let setDescriptionCommandClass: AnyClass
     let canvasImagerClass: AnyClass
+    let tableProviderClass: AnyClass
     let geometryClass: AnyClass
     let colorFillClass: AnyClass
     let strokeClass: AnyClass
@@ -205,6 +248,7 @@ public final class FreeformNativeBridge: @unchecked Sendable {
         base = runtime.imageBase
         buildUUID = uuid
         self.offsets = offsets
+        resolutionMode = .verifiedBuild
         self.msgSend = msgSend
         self.msgSendSuper2 = msgSendSuper2
 
@@ -230,6 +274,7 @@ public final class FreeformNativeBridge: @unchecked Sendable {
         setPathSourceCommandClass = try requireClass("Freeform.CRLCommandSetPathSource")
         setDescriptionCommandClass = try requireClass("Freeform.CRLCommandSetAccessibilityDescription")
         canvasImagerClass = try requireClass("CRLCanvasImager")
+        tableProviderClass = try requireClass("Freeform.CRLTableItemProvider")
         geometryClass = try requireClass("CRLCanvasInfoGeometry")
         colorFillClass = try requireClass("CRLColorFill")
         strokeClass = try requireClass("CRLStroke")
@@ -248,9 +293,12 @@ public final class FreeformNativeBridge: @unchecked Sendable {
         try requireSelector(boardClass, "asyncSavePendingChangesWithCompletionHandler:")
         try requireSelector(boardClass, "setTitle:")
         try requireSelector(factoryClass, "makeTextboxItemWithPosition:string:")
+        try requireSelector(factoryClass, "makeTextboxItemWithAttributedString:")
         try requireSelector(factoryClass, "makeShapeItemWithShapeType:")
         try requireSelector(factoryClass, "makeStickyNoteItemWithAttributedString:")
         try requireSelector(factoryClass, "makeTableItemWithRowCount:columnCount:geometry:")
+        try requireSelector(tableProviderClass, "initWithAttributedString:geometry:")
+        try requireSelector(tableProviderClass, "provideBoardItemWithFactory:completionHandler:")
         try requireSelector(factoryClass, "makeDuplicateOfBoardItems:")
         try requireSelector(factoryClass, "makeGroupItemWithGeometry:")
         try requireSelector(commandControllerClass, "initWithBoard:changeNotifier:selectionDispatcher:")
@@ -268,6 +316,7 @@ public final class FreeformNativeBridge: @unchecked Sendable {
         try requireSelector(reorderCommandClass, "initWithParentContainer:childrenToMove:targetIndices:")
         try requireSelector(reparentCommandClass, "initWithDestinationContainer:boardItems:")
         try requireSelector(replaceTextCommandClass, "initWithShapeItem:range:text:")
+        try requireSelector(replaceTextCommandClass, "initWithParentItem:storage:range:text:")
         try requireSelector(setPathSourceCommandClass, "initWithShapeItem:pathSource:")
         try requireSelector(setDescriptionCommandClass, "initWithBoardItem:accessibilityDescription:")
         try requireSelector(canvasImagerClass, "initWithBoard:")
@@ -550,6 +599,23 @@ public final class FreeformNativeBridge: @unchecked Sendable {
     }
 
     func setFavorite(in store: AnyObject, boardID: UUID, favorite: Bool) throws {
+        try setBoardBooleanMetadata(
+            in: store, boardID: boardID, value: favorite, offset: offsets.setFavorite, label: "favorite status")
+    }
+
+    func setCanvasDotGrid(in store: AnyObject, boardID: UUID, visible: Bool) throws {
+        try setBoardBooleanMetadata(
+            in: store, boardID: boardID, value: visible, offset: offsets.setCanvasDotGrid, label: "canvas dot grid")
+    }
+
+    func setConnectorMode(in store: AnyObject, boardID: UUID, enabled: Bool) throws {
+        try setBoardBooleanMetadata(
+            in: store, boardID: boardID, value: enabled, offset: offsets.setConnectorMode, label: "connector mode")
+    }
+
+    private func setBoardBooleanMetadata(
+        in store: AnyObject, boardID: UUID, value: Bool, offset: UInt, label: String
+    ) throws {
         try withBoardIdentifierPointer(in: store, boardID: boardID, includeDeleted: false) { keyPtr in
             guard let writeQueue = getObject(store, "writeQueue") as? DispatchQueue else {
                 throw PlatformError.saveFailed("Freeform store writeQueue is unavailable.")
@@ -557,15 +623,15 @@ public final class FreeformNativeBridge: @unchecked Sendable {
             var rawError: UnsafeMutableRawPointer?
             writeQueue.sync {
                 _ = ObjCCallSwiftSelf3Throwing(
-                    fnPtr(offsets.setFavorite),
+                    fnPtr(offset),
                     Unmanaged.passUnretained(store).toOpaque(),
-                    favorite ? 1 : 0,
+                    value ? 1 : 0,
                     UInt(bitPattern: keyPtr),
                     0,
                     &rawError)
             }
             if rawError != nil {
-                throw PlatformError.saveFailed("Freeform failed to update favorite status for \(boardID.uuidString).")
+                throw PlatformError.saveFailed("Freeform failed to update \(label) for \(boardID.uuidString).")
             }
         }
     }
@@ -775,23 +841,170 @@ public final class FreeformNativeBridge: @unchecked Sendable {
             factory, NSSelectorFromString("makeTextboxItemWithPosition:string:"), position, text as NSString)
     }
 
+    func makeAttributedTextbox(factory: AnyObject, attributedText: NSAttributedString) -> AnyObject {
+        typealias Fn = @convention(c) (AnyObject, Selector, AnyObject) -> AnyObject
+        return unsafeBitCast(msgSend, to: Fn.self)(
+            factory, NSSelectorFromString("makeTextboxItemWithAttributedString:"), attributedText)
+    }
+
     func makeShape(factory: AnyObject, shapeType: Int) -> AnyObject {
         typealias Fn = @convention(c) (AnyObject, Selector, Int) -> AnyObject
         return unsafeBitCast(msgSend, to: Fn.self)(
             factory, NSSelectorFromString("makeShapeItemWithShapeType:"), shapeType)
     }
 
-    func makeSticky(factory: AnyObject, text: String) -> AnyObject {
+    func makeSticky(factory: AnyObject, attributedText: NSAttributedString) -> AnyObject {
         typealias Fn = @convention(c) (AnyObject, Selector, AnyObject) -> AnyObject
         return unsafeBitCast(msgSend, to: Fn.self)(
             factory, NSSelectorFromString("makeStickyNoteItemWithAttributedString:"),
-            NSAttributedString(string: text))
+            attributedText)
     }
 
     func makeTable(factory: AnyObject, rows: Int, columns: Int, geometry: AnyObject) -> AnyObject {
         typealias Fn = @convention(c) (AnyObject, Selector, Int, Int, AnyObject) -> AnyObject
         return unsafeBitCast(msgSend, to: Fn.self)(
             factory, NSSelectorFromString("makeTableItemWithRowCount:columnCount:geometry:"), rows, columns, geometry)
+    }
+
+    /// Builds a native populated `CRLTableItem` with live cell `CRLWPStorage`s via `CRLTableItemProvider`.
+    func makePopulatedTable(factory: AnyObject, cells: [[String]], geometry: AnyObject, rtl: Bool) throws -> AnyObject {
+        let rowCount = max(cells.count, 1)
+        let colCount = max(cells.map(\.count).max() ?? 1, 1)
+        let textTable = NSTextTable()
+        textTable.numberOfColumns = colCount
+        let attrString = NSMutableAttributedString()
+        for r in 0..<rowCount {
+            for c in 0..<colCount {
+                let text = (r < cells.count && c < cells[r].count) ? cells[r][c] : ""
+                let block = NSTextTableBlock(
+                    table: textTable, startingRow: r, rowSpan: 1, startingColumn: c, columnSpan: 1)
+                let para = NSMutableParagraphStyle()
+                para.textBlocks = [block]
+                if rtl || Self.containsRTL(text) { para.baseWritingDirection = .rightToLeft }
+                attrString.append(NSAttributedString(string: text + "\n", attributes: [.paragraphStyle: para]))
+            }
+        }
+        typealias InitFn = @convention(c) (UnsafeMutableRawPointer, Selector, AnyObject, AnyObject) -> AnyObject
+        let provider = unsafeBitCast(msgSend, to: InitFn.self)(
+            allocRaw(tableProviderClass), NSSelectorFromString("initWithAttributedString:geometry:"), attrString,
+            geometry)
+        typealias ProvideFn =
+            @convention(c) (AnyObject, Selector, AnyObject, @escaping @convention(block) () -> Void)
+            -> Void
+        let sem = DispatchSemaphore(value: 0)
+        unsafeBitCast(msgSend, to: ProvideFn.self)(
+            provider, NSSelectorFromString("provideBoardItemWithFactory:completionHandler:"), factory
+        ) {
+            sem.signal()
+        }
+        guard sem.wait(timeout: .now() + 15) == .success,
+            let tableItem = getObject(provider, "boardItem")
+        else {
+            throw PlatformError.saveFailed("Freeform failed to create populated table.")
+        }
+        return tableItem
+    }
+
+    private static func containsRTL(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            (0x0590...0x05FF).contains(scalar.value) || (0x0600...0x06FF).contains(scalar.value)
+        }
+    }
+
+    /// Reads the dimensions, RTL flag and cell text matrix of a live `CRLTableItem`.
+    func readTable(_ tableItem: AnyObject) -> FreeformTableSnapshot {
+        let rows = getInt(tableItem, "rowCount")
+        let cols = getInt(tableItem, "columnCount")
+        let rtl = getBool(tableItem, "isRTL")
+        let rowIDs = ((getObject(tableItem, "allRowIDs") as? [NSUUID]) ?? []).map(\.uuidString)
+        let colIDs = ((getObject(tableItem, "allColumnIDs") as? [NSUUID]) ?? []).map(\.uuidString)
+        var grid = Array(repeating: Array(repeating: "", count: cols), count: rows)
+        let storages = (getObject(tableItem, "wpStorages") as? [AnyObject]) ?? []
+        for storage in storages {
+            guard let (rIdx, cIdx) = cellPosition(of: storage, in: tableItem, rowIDs: rowIDs, colIDs: colIDs),
+                rIdx < rows, cIdx < cols
+            else { continue }
+            grid[rIdx][cIdx] = plainText(of: storage)
+        }
+        return FreeformTableSnapshot(
+            id: itemUUIDString(tableItem) ?? "", rows: rows, columns: cols, rtl: rtl, cells: grid)
+    }
+
+    /// Finds the `CRLWPStorage` for cell (row, col) in a `CRLTableItem` and creates an in-place text replace command.
+    func makeSetTableCellCommand(tableItem: AnyObject, row: Int, column: Int, text: String) throws -> AnyObject {
+        let rows = getInt(tableItem, "rowCount")
+        let cols = getInt(tableItem, "columnCount")
+        guard row >= 0, row < rows, column >= 0, column < cols else {
+            throw AgentError.invalid(
+                "Cell (\(row), \(column)) is out of bounds for this \(rows)x\(cols) table.",
+                hint: "Use 0-based indices: row 0..\(max(rows - 1, 0)), column 0..\(max(cols - 1, 0)).")
+        }
+        let rowIDs = ((getObject(tableItem, "allRowIDs") as? [NSUUID]) ?? []).map(\.uuidString)
+        let colIDs = ((getObject(tableItem, "allColumnIDs") as? [NSUUID]) ?? []).map(\.uuidString)
+        let storages = (getObject(tableItem, "wpStorages") as? [AnyObject]) ?? []
+        for storage in storages {
+            if let (rIdx, cIdx) = cellPosition(of: storage, in: tableItem, rowIDs: rowIDs, colIDs: colIDs),
+                rIdx == row && cIdx == column
+            {
+                let len = storageLength(storage)
+                typealias Fn =
+                    @convention(c) (
+                        UnsafeMutableRawPointer, Selector, AnyObject, AnyObject, NSRange, AnyObject
+                    ) -> AnyObject
+                return unsafeBitCast(msgSend, to: Fn.self)(
+                    allocRaw(replaceTextCommandClass),
+                    NSSelectorFromString("initWithParentItem:storage:range:text:"),
+                    tableItem, storage, NSRange(location: 0, length: len), text as NSString)
+            }
+        }
+        throw AgentError(
+            code: "cell_uninitialized",
+            message:
+                "Cell (\(row), \(column)) has no backing text storage yet (the table was created without pre-seeded cells).",
+            hint: "Create tables with items add-table (which initializes all cells) or edit the cell once in Freeform.")
+    }
+
+    private func cellPosition(
+        of storage: AnyObject, in tableItem: AnyObject, rowIDs: [String], colIDs: [String]
+    ) -> (row: Int, column: Int)? {
+        guard let subSel = getObjectArg(tableItem, "subSelectionForSelectingTextInStorage:", storage) else {
+            return nil
+        }
+        let reflected = Reflected(subSel)
+        guard let cellID = reflected["range.currentCellID"] ?? reflected["range.baseCellID"] else { return nil }
+        let desc = String(describing: cellID.value)
+        // Format from CRLTableCellID: "[r:<UUID>, c:<UUID>]"
+        let uuids = desc.matches(of: /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/)
+            .map { String($0.output).uppercased() }
+        guard uuids.count >= 2,
+            let rIdx = rowIDs.firstIndex(where: { $0.uppercased() == uuids[0] }),
+            let cIdx = colIDs.firstIndex(where: { $0.uppercased() == uuids[1] })
+        else { return nil }
+        return (rIdx, cIdx)
+    }
+
+    private func storageLength(_ storage: AnyObject) -> Int {
+        if storage.responds(to: NSSelectorFromString("storageLength")) {
+            return max(0, getInt(storage, "storageLength"))
+        }
+        if storage.responds(to: NSSelectorFromString("characterCount")) {
+            return max(0, getInt(storage, "characterCount"))
+        }
+        return 0
+    }
+
+    private func plainText(of storage: AnyObject) -> String {
+        let len = storageLength(storage)
+        guard len > 0 else { return "" }
+        if storage.responds(to: NSSelectorFromString("substringWithRange:")) {
+            typealias SubFn = @convention(c) (AnyObject, Selector, NSRange) -> AnyObject?
+            if let raw = unsafeBitCast(msgSend, to: SubFn.self)(
+                storage, NSSelectorFromString("substringWithRange:"), NSRange(location: 0, length: len)) as? String
+            {
+                return raw.hasSuffix("\n") ? String(raw.dropLast()) : raw
+            }
+        }
+        return ""
     }
 
     func makeSetPathSourceCommand(shapeItem: AnyObject, pathSource: AnyObject) -> AnyObject {
