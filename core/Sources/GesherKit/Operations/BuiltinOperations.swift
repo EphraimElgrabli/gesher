@@ -15,6 +15,7 @@ enum BuiltinOperations {
                 let report = Doctor(
                     app: app, version: Gesher.version,
                     os: ProcessInfo.processInfo.operatingSystemVersionString,
+                    osGeneration: OSGeneration.current.description,
                     permission: permission.map {
                         PermissionCoordinator(backend: backend).inspect(service: $0).permission
                     },
@@ -91,6 +92,7 @@ enum BuiltinOperations {
         let app: String
         let version: String
         let os: String
+        let osGeneration: String
         let permission: String?
         let defaults: [String: String]?
         let updateAvailable: String?

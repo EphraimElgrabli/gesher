@@ -223,6 +223,16 @@ enum ParamValidation {
                 return .string(match)
             }
             throw fail("one of " + values.joined(separator: ", "))
+        case (.array(.array(let inner)), .string(let text)):
+            guard let parsed = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)),
+                case .array(let rows) = parsed
+            else { throw fail("a JSON array of arrays") }
+            return .array(try rows.map { try coerce($0, to: .array(inner), param: param) })
+        case (.array(.array(let inner)), .array(let values)) where values.count == 1:
+            if case .string(let text) = values[0], text.trimmingCharacters(in: .whitespaces).hasPrefix("[") {
+                return try coerce(.string(text), to: .array(.array(inner)), param: param)
+            }
+            return .array(try values.map { try coerce($0, to: .array(inner), param: param) })
         case (.array(let item), .array(let values)):
             return .array(try values.map { try coerce($0, to: item, param: param) })
         case (.array(let item), _):

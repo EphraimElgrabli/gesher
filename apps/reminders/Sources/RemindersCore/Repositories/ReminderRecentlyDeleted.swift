@@ -81,12 +81,11 @@ extension ReminderWriteRepository {
         if let missing = ids.first(where: { !found.contains($0) }) {
             throw ReminderCLIError.objectNotFound(type: "recently deleted task", id: missing)
         }
-        let symbol =
+        let symbols = [
             "$sSo8REMStoreC19ReminderKitInternalE24permanentlyHideReminders4with9accountID10completionySaySo11REMReminderCG_So09REMObjectJ0Cys6ResultOyyts5Error_pGctF"
-        guard let function = dlsym(UnsafeMutableRawPointer(bitPattern: -2), symbol) else {
-            throw ReminderCLIError.unsupportedPrivateAPI(
-                selector: "REMStore.permanentlyHideReminders", reason: "ReminderKitInternal changed.")
-        }
+        ]
+        let function = try DynamicRuntime.resolveFirstSymbol(
+            candidates: symbols, feature: "REMStore.permanentlyHideReminders")
         let groups = Dictionary(grouping: objects) { runtime.stableObjectIDString(from: $0.accountID) }
         for (_, members) in groups {
             let reply = NativeServiceReply()
