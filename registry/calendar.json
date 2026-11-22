@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.2.0/gesher-calendar-1.2.0.mcpb",
-      "fileSha256": "63d40037efbdfae264dd95b01bb9b1c554aa18acf860017cacfd3f7f4f852d18",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.3.0/gesher-calendar-1.3.0.mcpb",
+      "fileSha256": "e2e704dbdcf68b79ab9679f958a791fca5eee3bd6404c1e85c0ceb16b473f08c",
       "transport": {
         "type": "stdio"
       }
