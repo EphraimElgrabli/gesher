@@ -281,6 +281,79 @@ final class FreeformNativeAuthoringTests: XCTestCase {
         XCTAssertEqual(runCode, 1)
         XCTAssertEqual(runJSON?["error"]?["code"], "app_running")
     }
+
+    func testTablesDescriptionsReplaceShapeScenesFoldersAndExport() throws {
+        let (createCode, createJSON, createOut) = run(["boards", "create", "QA-gesher-p1"])
+        XCTAssertEqual(createCode, 0, createOut)
+        let boardID = try XCTUnwrap(createJSON?["board"]?["id"]?.stringValue)
+
+        // 1. Add native table (with RTL)
+        let (tCode, tJSON, tOut) = run([
+            "items", "add-table", boardID, "--rows", "3", "--columns", "4", "--x", "100", "--y", "100", "--rtl",
+        ])
+        XCTAssertEqual(tCode, 0, tOut)
+        XCTAssertEqual(tJSON?["item"]?["type"], "table")
+
+        // 2. Add shape, then replace shape kind & set accessibility description
+        let (_, sJSON, _) = run([
+            "items", "add-shape", boardID, "--shape", "rectangle", "--text", "Component", "--x", "100", "--y", "380",
+            "--fill", "blue",
+        ])
+        let shapeID = try XCTUnwrap(sJSON?["item"]?["id"]?.stringValue)
+        let (updCode, updJSON, updOut) = run([
+            "items", "update", boardID, "--item", shapeID, "--shape", "star", "--description", "Core service node",
+        ])
+        XCTAssertEqual(updCode, 0, updOut)
+        XCTAssertEqual(updJSON?["item"]?["description"], "Core service node")
+
+        // 3. Scenes CRUD: create, list, update, delete
+        let (scCreateCode, scCreateJSON, scCreateOut) = run([
+            "scenes", "create", boardID, "--name", "Overview", "--x", "0", "--y", "0", "--width", "1000", "--height",
+            "700",
+        ])
+        XCTAssertEqual(scCreateCode, 0, scCreateOut)
+        let sceneID = try XCTUnwrap(scCreateJSON?["scene"]?["id"]?.stringValue)
+        XCTAssertEqual(scCreateJSON?["scene"]?["name"], "Overview")
+
+        let (scListCode, scListJSON, scListOut) = run(["scenes", "list", boardID])
+        XCTAssertEqual(scListCode, 0, scListOut)
+        XCTAssertEqual(scListJSON?["scenes"]?.arrayValue?.count, 1)
+
+        let (scUpdCode, scUpdJSON, scUpdOut) = run([
+            "scenes", "update", boardID, "--scene", sceneID, "--name", "Architecture", "--width", "1400",
+        ])
+        XCTAssertEqual(scUpdCode, 0, scUpdOut)
+        XCTAssertEqual(scUpdJSON?["scene"]?["name"], "Architecture")
+        XCTAssertEqual(scUpdJSON?["scene"]?["width"], 1400)
+
+        let (scDelCode, scDelJSON, scDelOut) = run(["scenes", "delete", boardID, "--scene", sceneID])
+        XCTAssertEqual(scDelCode, 0, scDelOut)
+        XCTAssertEqual(scDelJSON?["deletedScene"]?.stringValue, sceneID)
+        let (_, scAfterJSON, _) = run(["scenes", "list", boardID])
+        XCTAssertEqual(scAfterJSON?["scenes"]?.arrayValue?.count, 0)
+
+        // 4. Native PDF & PNG export via CRLCanvasImager (works even when appRunning == true!)
+        let pdfPath = tempHome.appendingPathComponent("out.pdf").path
+        let pngPath = tempHome.appendingPathComponent("out.png").path
+        let (pdfCode, pdfJSON, pdfOut) = run(
+            ["boards", "export", boardID, "--output", pdfPath, "--kind", "pdf"], appRunning: true)
+        XCTAssertEqual(pdfCode, 0, pdfOut)
+        XCTAssertGreaterThan(pdfJSON?["bytes"]?.doubleValue ?? 0, 100)
+        let pdfBytes = try Data(contentsOf: URL(fileURLWithPath: pdfPath))
+        XCTAssertTrue(pdfBytes.starts(with: Array("%PDF-".utf8)))
+
+        let (pngCode, pngJSON, pngOut) = run(
+            ["boards", "export", boardID, "--output", pngPath, "--kind", "png"], appRunning: true)
+        XCTAssertEqual(pngCode, 0, pngOut)
+        XCTAssertGreaterThan(pngJSON?["bytes"]?.doubleValue ?? 0, 100)
+        let pngBytes = try Data(contentsOf: URL(fileURLWithPath: pngPath))
+        XCTAssertTrue(pngBytes.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+
+        // 5. Folders list returns valid JSON array
+        let (fCode, fJSON, fOut) = run(["folders", "list"])
+        XCTAssertEqual(fCode, 0, fOut)
+        XCTAssertNotNil(fJSON?["folders"]?.arrayValue)
+    }
 }
 
 private extension JSONValue {

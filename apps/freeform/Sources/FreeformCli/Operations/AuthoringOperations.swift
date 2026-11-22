@@ -232,6 +232,8 @@ enum UpdateItem: AgentOperation {
         var board: String
         var item: String
         var text: String?
+        var shape: String?
+        var description: String?
         var x: Double?
         var y: Double?
         var width: Double?
@@ -261,6 +263,8 @@ enum UpdateItem: AgentOperation {
         .string("board", "Board title or id.", required: true, positional: true),
         .string("item", "Item UUID to update.", required: true),
         .string("text", "Replace the item's text."),
+        .choice("shape", FreeformShapeKind.allCases.map(\.rawValue), "Replace a shape's geometry kind."),
+        .string("description", "Set accessibility description / alt text."),
         .number("x", "New X position in points."),
         .number("y", "New Y position in points."),
         .number("width", "New width in points.", min: 1),
@@ -302,7 +306,8 @@ enum UpdateItem: AgentOperation {
             throw AgentError.invalid("Invalid 'to' item UUID '\(to)'.")
         }
         return FreeformItemUpdateSpec(
-            text: input.text, x: input.x, y: input.y, width: input.width, height: input.height, angle: input.angle,
+            text: input.text, shape: try input.shape.map(FreeformShapeKind.parse), description: input.description,
+            x: input.x, y: input.y, width: input.width, height: input.height, angle: input.angle,
             fill: try input.fill.map(FreeformColor.parse), clearFill: input.clearFill,
             stroke: try input.stroke.map(FreeformColor.parse), strokeWidth: input.strokeWidth,
             strokePattern: try input.strokePattern.map(FreeformStrokePatternKind.parse),
@@ -395,6 +400,48 @@ enum DuplicateItems: AgentOperation {
         return ItemsMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
             items: result.items.map(Item.init), sync: "pending_until_app_launch")
+    }
+}
+
+enum AddTableItem: AgentOperation {
+    struct Input: Decodable, Sendable {
+        var board: String
+        var rows: Int
+        var columns: Int
+        var x: Double?
+        var y: Double?
+        var width: Double?
+        var height: Double?
+        var rtl: Bool
+        var ifRevision: String?
+    }
+
+    static let path = ["items", "add-table"]
+    static let summary = "Add a native Freeform table at explicit canvas coordinates (cell editing in Freeform UI)."
+    static let effect = OperationEffect.write
+    static let params: [Param] = [
+        .string("board", "Board title or id.", required: true, positional: true),
+        .integer("rows", "Number of rows (1-50). Default: 3.", default: 3, min: 1, max: 50),
+        .integer("columns", "Number of columns (1-25). Default: 3.", default: 3, min: 1, max: 25),
+        .number("x", "Canvas X position in points. Default: 100."),
+        .number("y", "Canvas Y position in points. Default: 100."),
+        .number("width", "Table width in points. Default: 420.", min: 1),
+        .number("height", "Table height in points. Default: 220.", min: 1),
+        .boolean("rtl", "Use right-to-left column direction (for Hebrew/Arabic)."),
+        .string("ifRevision", "Only save if the board still matches this revision."),
+    ]
+    static let examples = [
+        "items add-table 'Roadmap' --rows 4 --columns 3 --x 100 --y 200"
+    ]
+
+    static func run(_ input: Input, _ context: FreeformContext) throws -> ItemMutationOutput {
+        let spec = FreeformTableSpec(
+            rows: input.rows, columns: input.columns, x: input.x ?? 100, y: input.y ?? 100,
+            width: input.width ?? 420, height: input.height ?? 220, rtl: input.rtl)
+        let result = try context.writer.addTable(board: input.board, spec: spec, ifRevision: input.ifRevision)
+        return ItemMutationOutput(
+            board: result.board.id, title: result.board.title, revision: result.board.revision,
+            item: Item(result.item), sync: "pending_until_app_launch")
     }
 }
 

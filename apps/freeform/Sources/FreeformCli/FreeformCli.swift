@@ -44,10 +44,17 @@ enum FreeformApp {
                 AnyOperation(FavoriteBoard.self),
                 AnyOperation(DeleteBoard.self),
                 AnyOperation(RestoreBoard.self),
+                AnyOperation(ExportBoard.self),
+                AnyOperation(ListFolders.self),
+                AnyOperation(ListScenes.self),
+                AnyOperation(CreateScene.self),
+                AnyOperation(UpdateScene.self),
+                AnyOperation(DeleteScene.self),
                 AnyOperation(AddItems.self),
                 AnyOperation(AddTextItem.self),
                 AnyOperation(AddShapeItem.self),
                 AnyOperation(AddStickyItem.self),
+                AnyOperation(AddTableItem.self),
                 AnyOperation(ConnectItems.self),
                 AnyOperation(UpdateItem.self),
                 AnyOperation(DeleteItems.self),
@@ -158,14 +165,16 @@ enum FreeformDoctor: AgentOperation {
                 supported: authoringStatus.isAvailable
                     ? [
                         "boards_read", "items_read_paginated", "search", "import_inbox_media_links",
+                        "folders_read", "native_pdf_png_export", "native_scenes_crud", "native_tables_create",
                         "native_text_shape_sticky", "native_bound_connectors", "native_update_move_style_delete",
+                        "item_descriptions_and_replace_shape",
                         "native_group_duplicate_align", "native_diagram_batch",
                         "boards_rename_favorite_delete_restore",
                     ]
-                    : ["boards_read", "items_read_paginated", "search", "import_inbox_media_links"],
+                    : ["boards_read", "folders_read", "items_read_paginated", "search", "import_inbox_media_links"],
                 blocked: [
                     "shared_board_participant_writes", "collaboration_invites_and_presence", "table_cell_editing",
-                    "freehand_drawing_authoring", "pdf_export", "folders_write", "live_icloud_push_while_closed",
+                    "freehand_drawing_authoring", "folders_write", "live_icloud_push_while_closed",
                 ]),
             hint: hint)
     }

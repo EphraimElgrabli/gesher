@@ -174,13 +174,16 @@ final class FreeformCliTests: XCTestCase {
             app.operations.map(\.toolName),
             [
                 "doctor", "boards_list", "boards_get", "items_list", "search", "boards_create", "boards_rename",
-                "boards_favorite", "boards_delete", "boards_restore", "items_add", "items_add_text", "items_add_shape",
-                "items_add_sticky", "items_connect", "items_update", "items_delete", "items_duplicate", "items_group",
+                "boards_favorite", "boards_delete", "boards_restore", "boards_export", "folders_list", "scenes_list",
+                "scenes_create", "scenes_update", "scenes_delete", "items_add", "items_add_text", "items_add_shape",
+                "items_add_sticky", "items_add_table", "items_connect", "items_update", "items_delete",
+                "items_duplicate", "items_group",
                 "items_ungroup", "items_align", "diagram_create",
                 "permissions",
             ])
         XCTAssertEqual(
-            app.operations.filter { $0.effect == .destructive }.map(\.toolName), ["boards_delete", "items_delete"])
+            app.operations.filter { $0.effect == .destructive }.map(\.toolName),
+            ["boards_delete", "scenes_delete", "items_delete"])
     }
 
     func testReflectedLooksThroughRegistersAndOptionals() {
