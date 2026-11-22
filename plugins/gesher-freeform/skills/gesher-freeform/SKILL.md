@@ -11,7 +11,7 @@ commands with `~/.local/bin/freeform-cli <command> --help`.
 ## Find and read boards
 
 - `boards_list` returns boards most recently active first: `id`, `title`, `favorite`, `folder`,
-  `shared` (`owner` or `participant`), `items`, `revision`, `createdAt`, `lastActivityAt`.
+  `shared` (`owner` or `participant`), `items`, `revision`, `dotGrid`, `connectorMode`, `createdAt`, `lastActivityAt`.
   `includeDeleted: true` includes Recently Deleted boards; `favorites: true` filters to favorites.
 - Boards are selected by title or id. On `ambiguous`, retry with a candidate id.
 - `boards_get` returns one board, its `revision`, `coordinateSystem`, item counts per type, and
@@ -25,9 +25,10 @@ commands with `~/.local/bin/freeform-cli <command> --help`.
   `type` (text, shape, sticky, connector, image, file, link, table, drawing, movie, group), `text`,
   `x`/`y`/`width`/`height` (points, x right, y down), `angle`, `fill`/`stroke` (`#RRGGBB`),
   `url`, `file`, connector `from`/`to` item ids, `z` (stacking order, 0 = back), `group` and `locked`.
+- `items_table_get` reads a table's dimensions and full 2D `cells` matrix (works even while Freeform is open).
 - `search` finds words across all boards (titles, item text, links, file names).
 
-## Author editable diagrams and items (Freeform must be closed)
+## Author editable diagrams, tables and items
 
 - Use `diagram_create` to build a multi-node diagram (tree, flowchart, architecture, mind map) in
   one atomic write. Pass `spec` with `nodes` (`key`, `type`: `text`|`shape`|`sticky`, `shape`,
@@ -36,7 +37,9 @@ commands with `~/.local/bin/freeform-cli <command> --help`.
   auto-layout (`direction`: `top-down` or `left-right`). Every node and connector remains
   independently editable in Freeform.
 - For individual edits and additions:
-  - `items_add_text`, `items_add_shape`, `items_add_sticky`, `items_add_table` place items at exact coordinates.
+  - `items_add_text` and `items_add_sticky` support rich text styling (`fontSize`, `bold`, `italic`, `underline`, `strikethrough`, `textColor`, `align`) with automatic Hebrew/Arabic RTL direction.
+  - `items_add_shape` places shapes with fill, stroke, text and rotation.
+  - `items_add_table` creates empty or pre-populated tables (`cells: [[...]]`); `items_table_set_cell` edits any single cell in place while preserving the table UUID.
   - `items_connect` creates a native connector bound to two item ids (moves with connected nodes).
   - `items_update` edits `text`, `x`/`y`/`width`/`height`/`angle`, `fill`, `stroke`,
     `strokeWidth`, `strokePattern`, `headEnd`/`tailEnd`, `from`/`to`, `shape` (replace shape),
@@ -46,10 +49,9 @@ commands with `~/.local/bin/freeform-cli <command> --help`.
   - `items_delete` removes specific item ids without modifying unrelated objects and reports any
     `affectedConnectors`.
 - Board lifecycle: `boards_create`, `boards_rename`, `boards_favorite` (`off: true` to unfavorite),
-  `boards_delete` (exact title or id, moves to Recently Deleted), `boards_restore`.
+  `boards_appearance` (`dotGrid`, `connectorMode`), `boards_delete` (exact title or id, moves to Recently Deleted), `boards_restore`, `boards_sync` (launches Freeform hidden so pending edits sync to iCloud).
 - Pass `ifRevision` from `boards_get` or `items_list` to detect concurrent edits (`revision_mismatch`).
-- Native writes require Freeform.app to be closed (`app_running` if open) and sync to iCloud the
-  next time Freeform opens (`sync: "pending_until_app_launch"`).
+- If Freeform is idle in the background with no visible windows, Gesher closes it quietly before writing; if Freeform has an open window, native writes return `app_running` rather than interrupting the user. Call `boards_sync` after a batch of writes to sync quietly to iCloud.
 
 ## Import links, images and files
 

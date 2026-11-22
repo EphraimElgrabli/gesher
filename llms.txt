@@ -1,6 +1,6 @@
 # Gesher
 
-> Gesher gives AI agents native access to the apps on a Mac: Reminders, Calendar, Contacts, Notes, Maps, Weather and Freeform. Each app is a local command-line tool and an MCP server over stdio (141 tools, plus `doctor` and `permissions` diagnostics). Gesher itself runs entirely on the Mac: no Gesher servers, accounts or telemetry. macOS on Apple silicon; tested on macOS 27. GPL-3.0. Experimental and maintained: bug reports (especially after macOS updates) and pull requests are welcome on GitHub.
+> Gesher gives AI agents native access to the apps on a Mac: Reminders, Calendar, Contacts, Notes, Maps, Weather and Freeform. Each app is a local command-line tool and an MCP server over stdio (145 tools, plus `doctor` and `permissions` diagnostics). Gesher itself runs entirely on the Mac: no Gesher servers, accounts or telemetry. macOS on Apple silicon; tested on macOS 27. GPL-3.0. Experimental and maintained: bug reports (especially after macOS updates) and pull requests are welcome on GitHub.
 
 To set Gesher up for your user, follow docs/install.md. In short: `curl -fsSL https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/install.sh | bash -s -- --no-connect`, then `gesher connect --list`, ask the user which AI apps to connect, `gesher connect <those apps>`, `gesher permissions`, `gesher doctor`.
 
@@ -21,7 +21,7 @@ Once connected, every tool takes names instead of ids (case- and accent-insensit
 - [Notes](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/notes/README.md): Markdown read and write, folders, checklists, tables, tags, attachments (31 tools)
 - [Maps](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/maps/README.md): place search, nearby, details, routes and ETAs (6 tools)
 - [Weather](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/weather/README.md): current, hourly, daily, next-hour rain, alerts, air quality, saved locations (10 tools)
-- [Freeform](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/freeform/README.md): read, search, manage and export boards (PDF/PNG), folders, scenes, tables, editable text boxes, shapes, sticky notes, bound connectors and diagrams (28 tools)
+- [Freeform](https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/apps/freeform/README.md): read, search, manage and export boards (PDF/PNG), folders, scenes, editable tables, rich text boxes, shapes, sticky notes, bound connectors, diagrams, board appearance and quiet iCloud sync (32 tools)
 
 ## Optional
 

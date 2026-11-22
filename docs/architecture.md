@@ -23,7 +23,7 @@ Python, no wrapper process, no generated contract files, and no third-party Swif
 | Path | Role |
 |---|---|
 | `core/Sources/ObjCRuntimeSupport/` | C/arm64 typed `objc_msgSend` and Swift-ABI call shims |
-| `core/Sources/GesherPlatform/` | framework loading, `DynamicRuntime`, `NativeProperty`, `NativeServiceReply`, TCC permissions, `AgentError`, `EntityResolver`, `DateInput`/`DateOutput`, `UserConfig`, `Batch`, `MutationVerification` |
+| `core/Sources/GesherPlatform/` | framework loading, `DynamicRuntime`, `RuntimeCompatibility` (`OSGeneration`, multi-generation fallback resolvers), `MachOAnchorScanner`, `NativeProperty`, `NativeServiceReply`, TCC permissions, `AgentError`, `EntityResolver`, `DateInput`/`DateOutput`, `UserConfig`, `Batch`, `MutationVerification` |
 | `core/Sources/GesherKit/Operations/` | `AgentOperation`, `Param`, `AnyOperation`, `AgentApp` (CLI dispatch, help, `schema`, `doctor`, `permissions`), `JSONValue`, `Gesher.version` |
 | `core/Sources/GesherKit/MCP/` | `MCPServer`: newline-delimited JSON-RPC 2.0 over stdio |
 | `apps/<app>/Sources/<App>Core/` | private-framework runtime, repositories, native snapshots; no CLI dependency |
@@ -101,9 +101,12 @@ disconnects the AI apps and removes the links and `~/.local/lib/gesher`; it neve
 ## Concurrency and OS compatibility
 
 One process handles one request at a time. `@unchecked Sendable` on runtimes does not make
-repositories safe to share across threads. Private interfaces change between macOS releases:
-selectors and signatures are checked before invocation and mismatches fail explicitly, but only
-the local OS has been exercised.
+repositories safe to share across threads. Private interfaces evolve across macOS releases:
+`GesherPlatform` provides `OSGeneration`, `DynamicRuntime.resolveFirstClass/Selector/Symbol` for
+ordered multi-generation symbol/selector fallbacks across apps, and `MachOAnchorScanner` for
+unique-match structural anchor verification in loaded arm64 Mach-O images. Selectors, signatures
+and build UUIDs are checked before invocation so unrecognized changes fail explicitly rather than
+crashing.
 
 ## Permissions
 

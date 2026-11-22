@@ -20,6 +20,8 @@ struct Board: Encodable, Sendable {
     let deletedAt: String?
     let createdAt: String?
     let lastActivityAt: String?
+    let dotGrid: Bool?
+    let connectorMode: Bool?
 
     init(_ board: FreeformBoardSnapshot) {
         id = board.id
@@ -33,6 +35,8 @@ struct Board: Encodable, Sendable {
         deletedAt = board.deletedAt.map { DateOutput.iso($0) }
         createdAt = board.createdAt.map { DateOutput.iso($0) }
         lastActivityAt = board.lastActivityAt.map { DateOutput.iso($0) }
+        dotGrid = board.dotGrid
+        connectorMode = board.connectorMode
     }
 }
 
@@ -225,4 +229,35 @@ struct DeleteSceneOutput: Encodable, Sendable {
     let revision: String?
     let deletedScene: String
     let sync: String
+}
+
+struct TableData: Encodable, Sendable {
+    let id: String
+    let rows: Int
+    let columns: Int
+    let rtl: Bool
+    let cells: [[String]]
+
+    init(_ snapshot: FreeformTableSnapshot) {
+        id = snapshot.id
+        rows = snapshot.rows
+        columns = snapshot.columns
+        rtl = snapshot.rtl
+        cells = snapshot.cells
+    }
+}
+
+struct TableOutput: Encodable, Sendable {
+    let board: String
+    let title: String?
+    let revision: String?
+    let table: TableData
+    let sync: String?
+}
+
+struct SyncOutput: Encodable, Sendable {
+    let launched: Bool
+    let running: Bool
+    let hidden: Bool
+    let status: String
 }

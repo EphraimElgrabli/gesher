@@ -174,9 +174,11 @@ final class FreeformCliTests: XCTestCase {
             app.operations.map(\.toolName),
             [
                 "doctor", "boards_list", "boards_get", "items_list", "search", "boards_create", "boards_rename",
-                "boards_favorite", "boards_delete", "boards_restore", "boards_export", "folders_list", "scenes_list",
+                "boards_favorite", "boards_appearance", "boards_delete", "boards_restore", "boards_export",
+                "boards_sync", "folders_list", "scenes_list",
                 "scenes_create", "scenes_update", "scenes_delete", "items_add", "items_add_text", "items_add_shape",
-                "items_add_sticky", "items_add_table", "items_connect", "items_update", "items_delete",
+                "items_add_sticky", "items_add_table", "items_table_get", "items_table_set_cell",
+                "items_connect", "items_update", "items_delete",
                 "items_duplicate", "items_group",
                 "items_ungroup", "items_align", "diagram_create",
                 "permissions",

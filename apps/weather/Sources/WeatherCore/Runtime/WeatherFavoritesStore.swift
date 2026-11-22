@@ -19,12 +19,8 @@ final class WeatherFavoritesStore {
             throw PlatformError.frameworkLoadFailed(["WeatherCore"])
         }
         self.handle = handle
-        func symbol(_ name: String) throws -> UnsafeMutableRawPointer {
-            guard let result = dlsym(handle, name) else {
-                throw PlatformError.unsupportedPrivateAPI(
-                    selector: name, reason: "This WeatherCore ABI is unavailable.")
-            }
-            return result
+        func symbol(_ candidates: [String], feature: String) throws -> UnsafeMutableRawPointer {
+            try DynamicRuntime.resolveFirstSymbol(in: handle, candidates: candidates, feature: feature)
         }
         guard let providerClass = NSClassFromString("WeatherCore.SyncedDataContextProvider"),
             let managerClass = NSClassFromString("WeatherCore.SyncedDataManager"),
@@ -34,13 +30,13 @@ final class WeatherFavoritesStore {
         else { throw PlatformError.missingClass("WeatherCore favorites runtime types") }
         self.dataType = dataType
         self.locationType = locationType
-        let providerInit = try symbol(
-            "$s11WeatherCore25SyncedDataContextProviderC14dataStorageURL012useTransientE0AC10Foundation0I0VSg_SbtcfC")
-        let managerInit = try symbol(
-            "$s11WeatherCore17SyncedDataManagerC06syncedD15ContextProvider07defaultcD0AcA0cdgH4Type_p_AA0cD0VtcfC")
-        let emptyInit = try symbol("$s11WeatherCore10SyncedDataVACycfC")
+        let providerInit = try symbol(Self.providerInitSymbols, feature: "WeatherCore.SyncedDataContextProvider.init")
+        let managerInit = try symbol(Self.managerInitSymbols, feature: "WeatherCore.SyncedDataManager.init")
+        let emptyInit = try symbol(Self.emptyDataSymbols, feature: "WeatherCore.SyncedData.init")
         // Validate every required symbol before a native constructor or mutation.
-        for name in [Self.readSymbol, Self.addSymbol, Self.removeSymbol] { _ = try symbol(name) }
+        _ = try symbol(Self.readSymbols, feature: "WeatherCore.SyncedDataManager.getSyncedData")
+        _ = try symbol(Self.addSymbols, feature: "WeatherCore.SyncedDataManager.addLocation")
+        _ = try symbol(Self.removeSymbols, feature: "WeatherCore.SyncedDataManager.removeLocation")
         let directoryPointer = UnsafeMutablePointer<URL?>.allocate(capacity: 1)
         directoryPointer.initialize(to: storageDirectory)
         defer { directoryPointer.deallocate() }  // native initializer consumes this URL? copy
@@ -90,20 +86,33 @@ final class WeatherFavoritesStore {
         self.manager = try _openExistential(providerType, do: build)
     }
 
-    private static let readSymbol = "$s11WeatherCore17SyncedDataManagerC03getcD0AA0cD0VSgyF"
-    private static let addSymbol = "$s11WeatherCore17SyncedDataManagerC11addLocationyAA0cD0VAA0G0VF"
-    private static let removeSymbol = "$s11WeatherCore17SyncedDataManagerC14removeLocation2byAA0cD0VSS_tF"
+    /// Multi-generation symbol candidate lists (newest macOS first) so updates remain backward-compatible.
+    private static let providerInitSymbols = [
+        "$s11WeatherCore25SyncedDataContextProviderC14dataStorageURL012useTransientE0AC10Foundation0I0VSg_SbtcfC"
+    ]
+    private static let managerInitSymbols = [
+        "$s11WeatherCore17SyncedDataManagerC06syncedD15ContextProvider07defaultcD0AcA0cdgH4Type_p_AA0cD0VtcfC"
+    ]
+    private static let emptyDataSymbols = [
+        "$s11WeatherCore10SyncedDataVACycfC"
+    ]
+    private static let readSymbols = [
+        "$s11WeatherCore17SyncedDataManagerC03getcD0AA0cD0VSgyF"
+    ]
+    private static let addSymbols = [
+        "$s11WeatherCore17SyncedDataManagerC11addLocationyAA0cD0VAA0G0VF"
+    ]
+    private static let removeSymbols = [
+        "$s11WeatherCore17SyncedDataManagerC14removeLocation2byAA0cD0VSS_tF"
+    ]
 
-    private func function(_ name: String) throws -> UnsafeMutableRawPointer {
-        guard let value = dlsym(handle, name) else {
-            throw PlatformError.unsupportedPrivateAPI(selector: name, reason: "WeatherCore favorites ABI changed.")
-        }
-        return value
+    private func function(_ candidates: [String], feature: String) throws -> UnsafeMutableRawPointer {
+        try DynamicRuntime.resolveFirstSymbol(in: handle, candidates: candidates, feature: feature)
     }
 
     func all() throws -> [WeatherSavedLocationSnapshot] {
         Self.lock.lock(); defer { Self.lock.unlock() }
-        let readFunction = try function(Self.readSymbol)
+        let readFunction = try function(Self.readSymbols, feature: "WeatherCore favorites read")
         func read<T>(_ type: T.Type) -> Any? {
             var data: T? = nil
             withUnsafeMutablePointer(to: &data) { pointer in
@@ -180,7 +189,7 @@ final class WeatherFavoritesStore {
             "coordinate": ["latitude": location.latitude, "longitude": location.longitude],
         ]
         let native = try JSONDecoder().decode(decoderType, from: JSONSerialization.data(withJSONObject: fields))
-        let addFunction = try function(Self.addSymbol)
+        let addFunction = try function(Self.addSymbols, feature: "WeatherCore favorites add")
         func input<L>(_ type: L.Type) throws {
             guard let value = native as? L else {
                 throw PlatformError.fetchFailed("Native Location metadata mismatch.")
@@ -202,7 +211,7 @@ final class WeatherFavoritesStore {
 
     func remove(id: String) throws {
         Self.lock.lock(); defer { Self.lock.unlock() }
-        let removeFunction = try function(Self.removeSymbol)
+        let removeFunction = try function(Self.removeSymbols, feature: "WeatherCore favorites remove")
         let stringPointer = UnsafeMutablePointer<String>.allocate(capacity: 1)
         stringPointer.initialize(to: id)
         defer { stringPointer.deallocate() }  // native method consumes this String

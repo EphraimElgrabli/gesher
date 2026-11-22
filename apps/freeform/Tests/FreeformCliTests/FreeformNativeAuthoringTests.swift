@@ -31,19 +31,27 @@ final class FreeformNativeAuthoringTests: XCTestCase {
         }
     }
 
-    private func makeContext(appRunning: Bool = false) -> FreeformContext {
+    private func makeContext(
+        appRunning: Bool = false, hasVisibleWindows: Bool? = nil, terminateApp: @escaping () -> Bool = { true }
+    ) -> FreeformContext {
+        let visible = hasVisibleWindows ?? appRunning
         let store = FreeformStore(home: tempHome)
-        let writer = FreeformWriter(store: store, isAppRunning: { appRunning })
+        let writer = FreeformWriter(
+            store: store, isAppRunning: { appRunning }, hasVisibleWindows: { visible }, terminateApp: terminateApp)
         return FreeformContext(
             store: store,
             writer: writer,
-            authoringAvailable: { !appRunning && FreeformNativeBridge.status().isAvailable },
+            authoringAvailable: { (!appRunning || !visible) && FreeformNativeBridge.status().isAvailable },
             launchApp: {},
             importTimeout: 1)
     }
 
-    private func run(_ args: [String], appRunning: Bool = false) -> (Int32, JSONValue?, String) {
-        let context = makeContext(appRunning: appRunning)
+    private func run(
+        _ args: [String], appRunning: Bool = false, hasVisibleWindows: Bool? = nil,
+        terminateApp: @escaping () -> Bool = { true }
+    ) -> (Int32, JSONValue?, String) {
+        let context = makeContext(
+            appRunning: appRunning, hasVisibleWindows: hasVisibleWindows, terminateApp: terminateApp)
         var out = ""
         let code = FreeformApp.make(context: { context }).run(args, stdout: { out = $0 }, stderr: { _ in })
         return (code, try? JSONDecoder().decode(JSONValue.self, from: Data(out.utf8)), out)
@@ -353,6 +361,142 @@ final class FreeformNativeAuthoringTests: XCTestCase {
         let (fCode, fJSON, fOut) = run(["folders", "list"])
         XCTAssertEqual(fCode, 0, fOut)
         XCTAssertNotNil(fJSON?["folders"]?.arrayValue)
+    }
+
+    /// Populated table creation with Hebrew RTL cells, readback via items table-get (even while Freeform is open),
+    /// and in-place single-cell editing preserving the exact table UUID.
+    func testPopulatedTableReadAndInPlaceCellEditing() throws {
+        let (createCode, createJSON, createOut) = run(["boards", "create", "QA-gesher-tables"])
+        XCTAssertEqual(createCode, 0, createOut)
+        let boardID = try XCTUnwrap(createJSON?["board"]?["id"]?.stringValue)
+
+        let cellsArg = #"[["משימה","סטטוס"],["אימות","בתהליך"],["עיצוב","פתוח"]]"#
+        let (addCode, addJSON, addOut) = run([
+            "items", "add-table", boardID, "--cells", cellsArg, "--x", "120", "--y", "140", "--rtl",
+        ])
+        XCTAssertEqual(addCode, 0, addOut)
+        let tableID = try XCTUnwrap(addJSON?["item"]?["id"]?.stringValue)
+        XCTAssertEqual(addJSON?["item"]?["type"], "table")
+
+        // Read table cells even when Freeform is open (read-only snapshot copy).
+        let (getCode, getJSON, getOut) = run(["items", "table-get", boardID, "--item", tableID], appRunning: true)
+        XCTAssertEqual(getCode, 0, getOut)
+        XCTAssertEqual(getJSON?["table"]?["id"]?.stringValue, tableID)
+        XCTAssertEqual(getJSON?["table"]?["rows"], 3)
+        XCTAssertEqual(getJSON?["table"]?["columns"], 2)
+        XCTAssertNotNil(getJSON?["table"]?["rtl"])
+        XCTAssertEqual(
+            getJSON?["table"]?["cells"],
+            .array([
+                .array(["משימה", "סטטוס"]),
+                .array(["אימות", "בתהליך"]),
+                .array(["עיצוב", "פתוח"]),
+            ]))
+
+        // Edit cell (1, 1) in place and verify table UUID and sibling cells stay intact.
+        let (setCode, setJSON, setOut) = run([
+            "items", "table-set-cell", boardID, "--item", tableID, "--row", "1", "--column", "1", "--text", "הושלם",
+        ])
+        XCTAssertEqual(setCode, 0, setOut)
+        XCTAssertEqual(setJSON?["table"]?["id"]?.stringValue, tableID)
+        XCTAssertEqual(
+            setJSON?["table"]?["cells"],
+            .array([
+                .array(["משימה", "סטטוס"]),
+                .array(["אימות", "הושלם"]),
+                .array(["עיצוב", "פתוח"]),
+            ]))
+
+        // Read back freshly from disk to verify persistence.
+        let (afterCode, afterJSON, afterOut) = run(["items", "table-get", boardID, "--item", tableID])
+        XCTAssertEqual(afterCode, 0, afterOut)
+        XCTAssertEqual(afterJSON?["table"]?["cells"]?.arrayValue?[1].arrayValue?[1], "הושלם")
+
+        // Out-of-bounds cell index returns invalid argument (64).
+        let (oobCode, _, _) = run([
+            "items", "table-set-cell", boardID, "--item", tableID, "--row", "9", "--column", "0", "--text", "bad",
+        ])
+        XCTAssertEqual(oobCode, 64)
+    }
+
+    /// Rich text styling on text boxes and sticky notes, plus persistent board appearance toggles.
+    func testRichTextStylingAndBoardAppearance() throws {
+        let (createCode, createJSON, createOut) = run(["boards", "create", "QA-gesher-style"])
+        XCTAssertEqual(createCode, 0, createOut)
+        let boardID = try XCTUnwrap(createJSON?["board"]?["id"]?.stringValue)
+
+        let (tCode, tJSON, tOut) = run([
+            "items", "add-text", boardID, "--text", "כותרת ראשית", "--x", "100", "--y", "100", "--font-size", "28",
+            "--bold", "--italic", "--underline", "--text-color", "#2563EB", "--align", "right",
+        ])
+        XCTAssertEqual(tCode, 0, tOut)
+        XCTAssertEqual(tJSON?["item"]?["text"], "כותרת ראשית")
+
+        let (sCode, sJSON, sOut) = run([
+            "items", "add-sticky", boardID, "--text", "פתק מודגש", "--x", "420", "--y", "100", "--fill", "yellow",
+            "--font-size", "20", "--bold", "--text-color", "black",
+        ])
+        XCTAssertEqual(sCode, 0, sOut)
+        XCTAssertEqual(sJSON?["item"]?["text"], "פתק מודגש")
+
+        let (ap1Code, ap1JSON, ap1Out) = run([
+            "boards", "appearance", boardID, "--dot-grid", "false", "--connector-mode", "true",
+        ])
+        XCTAssertEqual(ap1Code, 0, ap1Out)
+        XCTAssertEqual(ap1JSON?["board"]?["dotGrid"], false)
+        XCTAssertEqual(ap1JSON?["board"]?["connectorMode"], true)
+
+        // Toggling only dot-grid preserves connectorMode.
+        let (ap2Code, ap2JSON, ap2Out) = run(["boards", "appearance", boardID, "--dot-grid", "true"])
+        XCTAssertEqual(ap2Code, 0, ap2Out)
+        XCTAssertEqual(ap2JSON?["board"]?["dotGrid"], true)
+        XCTAssertEqual(ap2JSON?["board"]?["connectorMode"], true)
+    }
+
+    /// Background-idle Freeform (running with no visible windows) is closed cleanly before writing,
+    /// while an open visible window is never interrupted.
+    func testIdleBackgroundAutoCloseVsVisibleWindow() throws {
+        let (createCode, createJSON, createOut) = run(["boards", "create", "QA-gesher-idle"])
+        XCTAssertEqual(createCode, 0, createOut)
+        let boardID = try XCTUnwrap(createJSON?["board"]?["id"]?.stringValue)
+
+        var terminatedCount = 0
+        let (idleCode, _, idleOut) = run(
+            ["items", "add-text", boardID, "--text", "Auto-closed idle"],
+            appRunning: true, hasVisibleWindows: false,
+            terminateApp: {
+                terminatedCount += 1
+                return true
+            })
+        XCTAssertEqual(idleCode, 0, idleOut)
+        XCTAssertEqual(terminatedCount, 1)
+
+        var blockedTerminatedCount = 0
+        let (visCode, visJSON, visOut) = run(
+            ["items", "add-text", boardID, "--text", "Blocked by window"],
+            appRunning: true, hasVisibleWindows: true,
+            terminateApp: {
+                blockedTerminatedCount += 1
+                return true
+            })
+        XCTAssertEqual(visCode, 1, visOut)
+        XCTAssertEqual(visJSON?["error"]?["code"], "app_running")
+        XCTAssertEqual(blockedTerminatedCount, 0)
+    }
+
+    /// Verifies that the cross-generational Mach-O structural anchor scanner locates the exact same
+    /// function offsets as the verified build table on this Mac's Freeform binary.
+    func testGenerationalAnchorDiscoveryMatchesVerifiedBuild() throws {
+        let bridge = try FreeformNativeBridge.load()
+        XCTAssertEqual(bridge.resolutionMode, .verifiedBuild)
+        let discovered = try XCTUnwrap(FreeformNativeBridge.discoverAnchors(imageBase: bridge.base))
+        XCTAssertEqual(discovered.fetchBoards, bridge.offsets.fetchBoards)
+        XCTAssertEqual(discovered.setFavorite, bridge.offsets.setFavorite)
+        XCTAssertEqual(discovered.setCanvasDotGrid, bridge.offsets.setCanvasDotGrid)
+        XCTAssertEqual(discovered.setConnectorMode, bridge.offsets.setConnectorMode)
+        XCTAssertEqual(discovered.deleteBoard, bridge.offsets.deleteBoard)
+        XCTAssertEqual(discovered.undeleteBoard, bridge.offsets.undeleteBoard)
+        XCTAssertEqual(discovered.appendPendingChanges, bridge.offsets.appendPendingChanges)
     }
 }
 

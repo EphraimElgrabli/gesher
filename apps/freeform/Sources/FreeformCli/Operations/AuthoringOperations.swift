@@ -12,11 +12,19 @@ enum AddTextItem: AgentOperation {
         var width: Double?
         var height: Double?
         var angle: Double?
+        var fontSize: Double?
+        var bold: Bool
+        var italic: Bool
+        var underline: Bool
+        var strikethrough: Bool
+        var textColor: String?
+        var align: String?
         var ifRevision: String?
     }
 
     static let path = ["items", "add-text"]
-    static let summary = "Add an editable text box at explicit canvas coordinates (points, RTL/Unicode supported)."
+    static let summary =
+        "Add an editable text box at explicit canvas coordinates (points, rich text styling & RTL/Unicode supported)."
     static let effect = OperationEffect.write
     static let params: [Param] = [
         .string("board", "Board title or id.", required: true, positional: true),
@@ -26,6 +34,15 @@ enum AddTextItem: AgentOperation {
         .number("width", "Width in points.", min: 1),
         .number("height", "Height in points.", min: 1),
         .number("angle", "Rotation in degrees clockwise. Default: 0."),
+        .number("fontSize", "Font size in points (e.g. 24).", min: 6, max: 400),
+        .boolean("bold", "Use bold font weight."),
+        .boolean("italic", "Use italic font style."),
+        .boolean("underline", "Underline the text."),
+        .boolean("strikethrough", "Strikethrough the text."),
+        .string("textColor", "Text color (#RRGGBB or name like black, blue, red)."),
+        .choice(
+            "align", FreeformTextAlignment.allCases.map(\.rawValue),
+            "Paragraph alignment (left, center, right, justified)."),
         .string("ifRevision", "Only save if the board still matches this revision."),
     ]
     static let examples = [
@@ -36,12 +53,18 @@ enum AddTextItem: AgentOperation {
         guard !input.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AgentError.invalid("Text content is empty.")
         }
+        if let textColor = input.textColor { _ = try FreeformColor.parse(textColor) }
+        if let align = input.align { _ = try FreeformTextAlignment.parse(align) }
     }
 
     static func run(_ input: Input, _ context: FreeformContext) throws -> ItemMutationOutput {
+        let style = FreeformTextStyle(
+            fontSize: input.fontSize, bold: input.bold, italic: input.italic, underline: input.underline,
+            strikethrough: input.strikethrough, color: try input.textColor.map(FreeformColor.parse),
+            alignment: try input.align.map(FreeformTextAlignment.parse))
         let spec = FreeformTextSpec(
             text: input.text, x: input.x ?? 100, y: input.y ?? 100, width: input.width, height: input.height,
-            angle: input.angle ?? 0)
+            angle: input.angle ?? 0, style: style.hasStyling ? style : nil)
         let result = try context.writer.addText(board: input.board, spec: spec, ifRevision: input.ifRevision)
         return ItemMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
@@ -124,11 +147,19 @@ enum AddStickyItem: AgentOperation {
         var height: Double?
         var angle: Double?
         var fill: String?
+        var fontSize: Double?
+        var bold: Bool
+        var italic: Bool
+        var underline: Bool
+        var strikethrough: Bool
+        var textColor: String?
+        var align: String?
         var ifRevision: String?
     }
 
     static let path = ["items", "add-sticky"]
-    static let summary = "Add a native sticky note with text, optional color, position, size and rotation."
+    static let summary =
+        "Add a native sticky note with text, optional color, rich text styling, position, size and rotation."
     static let effect = OperationEffect.write
     static let params: [Param] = [
         .string("board", "Board title or id.", required: true, positional: true),
@@ -139,6 +170,15 @@ enum AddStickyItem: AgentOperation {
         .number("height", "Height in points. Default: 200.", min: 1),
         .number("angle", "Rotation in degrees clockwise. Default: 0."),
         .string("fill", "Sticky note color (#RRGGBB or name like yellow, blue, green, pink, orange, purple)."),
+        .number("fontSize", "Font size in points (e.g. 20).", min: 6, max: 400),
+        .boolean("bold", "Use bold font weight."),
+        .boolean("italic", "Use italic font style."),
+        .boolean("underline", "Underline the text."),
+        .boolean("strikethrough", "Strikethrough the text."),
+        .string("textColor", "Text color (#RRGGBB or name like black, blue, red)."),
+        .choice(
+            "align", FreeformTextAlignment.allCases.map(\.rawValue),
+            "Paragraph alignment (left, center, right, justified)."),
         .string("ifRevision", "Only save if the board still matches this revision."),
     ]
     static let examples = [
@@ -147,12 +187,19 @@ enum AddStickyItem: AgentOperation {
 
     static func validate(_ input: Input) throws {
         if let fill = input.fill { _ = try FreeformColor.parse(fill) }
+        if let textColor = input.textColor { _ = try FreeformColor.parse(textColor) }
+        if let align = input.align { _ = try FreeformTextAlignment.parse(align) }
     }
 
     static func run(_ input: Input, _ context: FreeformContext) throws -> ItemMutationOutput {
+        let style = FreeformTextStyle(
+            fontSize: input.fontSize, bold: input.bold, italic: input.italic, underline: input.underline,
+            strikethrough: input.strikethrough, color: try input.textColor.map(FreeformColor.parse),
+            alignment: try input.align.map(FreeformTextAlignment.parse))
         let spec = FreeformStickySpec(
             text: input.text, x: input.x ?? 100, y: input.y ?? 100, width: input.width ?? 200,
-            height: input.height ?? 200, angle: input.angle ?? 0, fill: try input.fill.map(FreeformColor.parse))
+            height: input.height ?? 200, angle: input.angle ?? 0, fill: try input.fill.map(FreeformColor.parse),
+            style: style.hasStyling ? style : nil)
         let result = try context.writer.addSticky(board: input.board, spec: spec, ifRevision: input.ifRevision)
         return ItemMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
@@ -408,6 +455,7 @@ enum AddTableItem: AgentOperation {
         var board: String
         var rows: Int
         var columns: Int
+        var cells: [[String]]?
         var x: Double?
         var y: Double?
         var width: Double?
@@ -417,31 +465,110 @@ enum AddTableItem: AgentOperation {
     }
 
     static let path = ["items", "add-table"]
-    static let summary = "Add a native Freeform table at explicit canvas coordinates (cell editing in Freeform UI)."
+    static let summary =
+        "Add a native Freeform table at explicit canvas coordinates with optional initial 2D cell contents."
     static let effect = OperationEffect.write
     static let params: [Param] = [
         .string("board", "Board title or id.", required: true, positional: true),
         .integer("rows", "Number of rows (1-50). Default: 3.", default: 3, min: 1, max: 50),
         .integer("columns", "Number of columns (1-25). Default: 3.", default: 3, min: 1, max: 25),
+        Param(
+            "cells", .array(.array(.string)),
+            "Optional 2D array of cell strings (rows x columns); infers dimensions when passed."),
         .number("x", "Canvas X position in points. Default: 100."),
         .number("y", "Canvas Y position in points. Default: 100."),
         .number("width", "Table width in points. Default: 420.", min: 1),
         .number("height", "Table height in points. Default: 220.", min: 1),
-        .boolean("rtl", "Use right-to-left column direction (for Hebrew/Arabic)."),
+        .boolean("rtl", "Force right-to-left text direction on all table cells (Hebrew/Arabic text is auto-detected)."),
         .string("ifRevision", "Only save if the board still matches this revision."),
     ]
     static let examples = [
-        "items add-table 'Roadmap' --rows 4 --columns 3 --x 100 --y 200"
+        "items add-table 'Roadmap' --rows 4 --columns 3 --x 100 --y 200",
+        #"items add-table 'Roadmap' --cells '[["Task","Owner"],["Auth","Alex"]]' --x 100 --y 200"#,
     ]
 
     static func run(_ input: Input, _ context: FreeformContext) throws -> ItemMutationOutput {
         let spec = FreeformTableSpec(
-            rows: input.rows, columns: input.columns, x: input.x ?? 100, y: input.y ?? 100,
+            rows: input.rows, columns: input.columns, cells: input.cells, x: input.x ?? 100, y: input.y ?? 100,
             width: input.width ?? 420, height: input.height ?? 220, rtl: input.rtl)
         let result = try context.writer.addTable(board: input.board, spec: spec, ifRevision: input.ifRevision)
         return ItemMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
             item: Item(result.item), sync: "pending_until_app_launch")
+    }
+}
+
+enum GetTable: AgentOperation {
+    struct Input: Decodable, Sendable {
+        var board: String
+        var item: String
+    }
+
+    static let path = ["items", "table-get"]
+    static let summary =
+        "Read a Freeform table's dimensions, RTL flag and 2D cell text matrix (works while Freeform is open)."
+    static let params: [Param] = [
+        .string("board", "Board title or id.", required: true, positional: true),
+        .string("item", "Table item UUID.", required: true),
+    ]
+    static let examples = [
+        "items table-get 'Roadmap' --item 00000000-0000-0000-0000-000000000001"
+    ]
+
+    static func validate(_ input: Input) throws {
+        guard UUID(uuidString: input.item) != nil else {
+            throw AgentError.invalid("Invalid table item UUID '\(input.item)'.")
+        }
+    }
+
+    static func run(_ input: Input, _ context: FreeformContext) throws -> TableOutput {
+        let result = try context.writer.getTable(board: input.board, itemID: input.item)
+        return TableOutput(
+            board: result.board.id, title: result.board.title, revision: result.board.revision,
+            table: TableData(result.table), sync: nil)
+    }
+}
+
+enum SetTableCell: AgentOperation {
+    struct Input: Decodable, Sendable {
+        var board: String
+        var item: String
+        var row: Int
+        var column: Int
+        var text: String
+        var ifRevision: String?
+    }
+
+    static let path = ["items", "table-set-cell"]
+    static let summary =
+        "Update a single cell's text inside an existing Freeform table in place (0-based row and column)."
+    static let effect = OperationEffect.write
+    static let idempotent = true
+    static let params: [Param] = [
+        .string("board", "Board title or id.", required: true, positional: true),
+        .string("item", "Table item UUID.", required: true),
+        .integer("row", "0-based row index.", required: true, min: 0),
+        .integer("column", "0-based column index.", required: true, min: 0),
+        .string("text", "New text for the cell.", required: true),
+        .string("ifRevision", "Only save if the board still matches this revision."),
+    ]
+    static let examples = [
+        "items table-set-cell 'Roadmap' --item 00000000-0000-0000-0000-000000000001 --row 1 --column 0 --text 'Done'"
+    ]
+
+    static func validate(_ input: Input) throws {
+        guard UUID(uuidString: input.item) != nil else {
+            throw AgentError.invalid("Invalid table item UUID '\(input.item)'.")
+        }
+    }
+
+    static func run(_ input: Input, _ context: FreeformContext) throws -> TableOutput {
+        let result = try context.writer.setTableCell(
+            board: input.board, itemID: input.item, row: input.row, column: input.column, text: input.text,
+            ifRevision: input.ifRevision)
+        return TableOutput(
+            board: result.board.id, title: result.board.title, revision: result.board.revision,
+            table: TableData(result.table), sync: "pending_until_app_launch")
     }
 }
 

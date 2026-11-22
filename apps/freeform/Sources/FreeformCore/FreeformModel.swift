@@ -7,6 +7,8 @@ import ObjCRuntimeSupport
 public enum FreeformRecord: Hashable, Sendable {
     /// `boards.data`: `CRLBoardCRDTData` (title, root container, creation and activity times).
     case board
+    /// `boards_metadata.crdt_data`: `CRLUserBoardMetadataCRDTData` (favorite, dot grid, connector mode).
+    case boardMetadata
     /// `folders.data`: `CRLFolderCRDTData`.
     case folder
     /// `board_items.common_data` (id, parent, geometry, lock). Shape-like items carry a path too.
@@ -19,6 +21,7 @@ public enum FreeformRecord: Hashable, Sendable {
         func named(_ name: String) -> String { "\(name.count)\(name)V" }
         switch self {
         case .board: return "8Freeform" + named("CRLBoardCRDTData")
+        case .boardMetadata: return "8Freeform" + named("CRLUserBoardMetadataCRDTData")
         case .folder: return "8Freeform" + named("CRLFolderCRDTData")
         case .itemCommon(let kind):
             let affinity = kind.isShapeLike ? "CRLShapeItemParentAffinity" : "CRLBoardItemParentAffinity"
@@ -98,14 +101,17 @@ public final class FreeformModelRuntime: FreeformRecordDecoding, @unchecked Send
         // Freeform links its bundled TS* frameworks by @rpath; loading them by path first lets the
         // executable resolve them. The ObjC runtime warns about one duplicate class while loading.
         try Self.quietly { try Self.loadFreeformExecutable() }
-        guard let initializer = dlsym(coherence, "$s9Coherence4CRDTPAAE14serializedDatax10Foundation0D0V_tKcfC"),
-            let descriptor = dlsym(coherence, "$s9Coherence4CRDTMp"),
-            let conforms = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "swift_conformsToProtocol")
-        else {
-            throw PlatformError.unsupportedPrivateAPI(
-                selector: "Coherence.CRDT.init(serializedData:)",
-                reason: "This macOS version's Coherence framework does not export the CRDT decoder.")
-        }
+        let initializer = try DynamicRuntime.resolveFirstSymbol(
+            in: coherence,
+            candidates: ["$s9Coherence4CRDTPAAE14serializedDatax10Foundation0D0V_tKcfC"],
+            feature: "Coherence.CRDT.init(serializedData:)")
+        let descriptor = try DynamicRuntime.resolveFirstSymbol(
+            in: coherence,
+            candidates: ["$s9Coherence4CRDTMp"],
+            feature: "Coherence.CRDT protocol descriptor")
+        let conforms = try DynamicRuntime.resolveFirstSymbol(
+            candidates: ["swift_conformsToProtocol"],
+            feature: "swift_conformsToProtocol")
         self.initializer = initializer
         protocolDescriptor = UnsafeRawPointer(descriptor)
         conformsToProtocol = unsafeBitCast(
@@ -155,7 +161,7 @@ public final class FreeformModelRuntime: FreeformRecordDecoding, @unchecked Send
 
     /// Whether every record type resolves to a Freeform type conforming to `Coherence.CRDT`.
     public func missingTypes() -> [String] {
-        var records: [FreeformRecord] = [.board, .folder]
+        var records: [FreeformRecord] = [.board, .boardMetadata, .folder]
         for kind in FreeformItemKind.allCases { records += [.itemCommon(kind), .itemSpecific(kind)] }
         return records.filter { resolve($0) == nil }.map(\.typeName)
     }
