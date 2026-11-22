@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.3.1/gesher-freeform-1.3.1.mcpb",
-      "fileSha256": "c1f92d7c9873b0867602e6d7c57216879d15ce69c050da8a3f8ef0cf6ddd011b",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.3.2/gesher-freeform-1.3.2.mcpb",
+      "fileSha256": "1a133adddac9b0d82bbf4e643295c8e512c8686c2146ead97de46e6a78d87772",
       "transport": {
         "type": "stdio"
       }

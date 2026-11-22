@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/EphraimElgrabli/gesher",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.3.1/gesher-maps-1.3.1.mcpb",
-      "fileSha256": "cf2a54e3233110055724618f8a0291cfb18287257e93566098853d3ded124e6b",
+      "identifier": "https://github.com/EphraimElgrabli/gesher/releases/download/v1.3.2/gesher-maps-1.3.2.mcpb",
+      "fileSha256": "c658570b803084ba991d5bb0439f396ae68d507fe15d18665bcd6dbad1f32105",
       "transport": {
         "type": "stdio"
       }
