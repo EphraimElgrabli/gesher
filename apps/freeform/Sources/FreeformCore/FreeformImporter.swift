@@ -115,6 +115,26 @@ public final class FreeformImporter: @unchecked Sendable {
         !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty
     }
 
+    /// True when Freeform is currently the frontmost active application.
+    public static var isAppActive: Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleIdentifier
+    }
+
+    /// Whether Quick Refresh is enabled when Freeform has a visible window open.
+    /// Enabled by default so users can work alongside agents; override via `GESHER_FREEFORM_LIVE_REFRESH=0`
+    /// or `{"freeform": {"liveRefresh": "off"}}` in `~/.config/gesher/config.json`.
+    public static func liveRefreshEnabled(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        if let raw = environment["GESHER_FREEFORM_LIVE_REFRESH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(), !raw.isEmpty
+        {
+            return !["0", "false", "off", "no"].contains(raw)
+        }
+        if let configured = UserConfig.load(environment: environment).value("freeform", "liveRefresh")?.lowercased() {
+            return !["0", "false", "off", "no"].contains(configured)
+        }
+        return true
+    }
+
     /// True when Freeform has at least one normal on-screen window (ignoring menu-bar/background helper layers).
     public static var hasVisibleWindows: Bool {
         let apps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
@@ -148,6 +168,34 @@ public final class FreeformImporter: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 0.15)
         }
         return !isAppRunning
+    }
+
+    /// Reopens Freeform visibly (directly to `freeform://board?id=<UUID>` when `boardID` is provided)
+    /// while preserving focus when `activate` is false so the user's chat/editor stays focused.
+    public static func reopenApp(boardID: String? = nil, activate: Bool = false) throws {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = activate
+        configuration.hides = false
+        let appURL = URL(fileURLWithPath: FreeformModelRuntime.appPath)
+        let done = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var failure: Error?
+        if let boardID, UUID(uuidString: boardID) != nil,
+            let deepLink = URL(string: "freeform://board?id=\(boardID)")
+        {
+            NSWorkspace.shared.open([deepLink], withApplicationAt: appURL, configuration: configuration) { _, error in
+                failure = error
+                done.signal()
+            }
+        } else {
+            NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, error in
+                failure = error
+                done.signal()
+            }
+        }
+        if done.wait(timeout: .now() + 15) == .timedOut || failure != nil {
+            throw PlatformError.privateBackendUnavailable(
+                "Freeform could not be reopened: \(failure?.localizedDescription ?? "timed out").")
+        }
     }
 
     /// Opens Freeform in the background when it is not running (it imports pending content at launch).

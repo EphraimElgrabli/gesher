@@ -29,8 +29,10 @@ enum FreeformApp {
                 items_delete, items_duplicate, items_group, items_ungroup, items_align, diagram_create, \
                 boards_rename, boards_favorite, boards_appearance, boards_delete, boards_restore) writes \
                 through Freeform's own command engine and verifies every change on readback. If Freeform is \
-                running idle in the background with no visible windows, Gesher closes it quietly before \
-                writing; call boards_sync afterward to launch Freeform hidden for iCloud sync. Read-only \
+                open with a visible window, Quick Refresh (on by default) closes it cleanly, applies the \
+                write and immediately reopens the edited board without stealing focus (sync: live_refreshed). \
+                When Freeform is closed or idle with no visible windows, writes run silently without opening \
+                a window; call boards_sync afterward if you want hidden iCloud sync. Read-only \
                 native tools (items_table_get, scenes_list, boards_export) work even while Freeform is open. \
                 Pass ifRevision from boards_get or items_list to guard against concurrent edits. items_add \
                 and boards_create with files/urls use Freeform's import inbox.
@@ -90,7 +92,8 @@ final class FreeformContext {
         store: FreeformStore = FreeformStore(), importer: FreeformImporter? = nil,
         writer: FreeformWriter? = nil,
         authoringAvailable: @escaping () -> Bool = {
-            (!FreeformImporter.isAppRunning || !FreeformImporter.hasVisibleWindows)
+            (!FreeformImporter.isAppRunning || !FreeformImporter.hasVisibleWindows
+                || FreeformImporter.liveRefreshEnabled())
                 && FreeformNativeBridge.status().isAvailable
         },
         launchApp: @escaping () throws -> Void = { try FreeformImporter.launchAppIfNeeded() },
@@ -146,10 +149,12 @@ enum FreeformDoctor: AgentOperation {
         }
         let running = FreeformImporter.isAppRunning
         let visibleWindows = running && FreeformImporter.hasVisibleWindows
+        let liveRefresh = FreeformImporter.liveRefreshEnabled()
         let abiResolution = (try? FreeformNativeBridge.load())?.resolutionMode.rawValue
         let authoringLabel =
             authoringStatus.isAvailable
-            ? (visibleWindows ? "native_paused_app_running" : "native") : authoringStatus.label
+            ? (visibleWindows ? (liveRefresh ? "native_live_refresh" : "native_paused_app_running") : "native")
+            : authoringStatus.label
         let hint: String? =
             !readable
             ? "Give the app that runs freeform-cli Full Disk Access (System Settings > Privacy & Security), then restart it."
@@ -159,7 +164,7 @@ enum FreeformDoctor: AgentOperation {
                     ? "This Freeform version's model is not supported; reads may omit fields."
                     : !authoringStatus.isAvailable
                         ? "Native authoring is gated on verified Freeform builds; reads and import-inbox writes still work."
-                        : visibleWindows
+                        : (visibleWindows && !liveRefresh)
                             ? "Close or quit Freeform windows before running native authoring commands." : nil
         return DoctorOutput(
             app: "freeform", version: AgentApp<FreeformContext>.version,
@@ -171,6 +176,7 @@ enum FreeformDoctor: AgentOperation {
             abiResolution: abiResolution,
             freeformRunning: running,
             freeformHasVisibleWindows: visibleWindows,
+            liveRefresh: liveRefresh,
             permission: PermissionCoordinator().inspect(service: .fullDiskAccess).permission,
             groupContainerReadable: readable, store: location?.kind.rawValue,
             storeModifiedAt: location.flatMap { lastModified($0.database) }.map { DateOutput.iso($0) }, model: model,
@@ -181,7 +187,7 @@ enum FreeformDoctor: AgentOperation {
                         "boards_read", "items_read_paginated", "search", "import_inbox_media_links",
                         "folders_read", "native_pdf_png_export", "native_scenes_crud",
                         "native_table_cells_read_write", "rich_text_styling", "board_appearance",
-                        "idle_background_auto_close", "quiet_background_sync",
+                        "live_quick_refresh", "idle_background_auto_close", "quiet_background_sync",
                         "native_text_shape_sticky", "native_bound_connectors", "native_update_move_style_delete",
                         "item_descriptions_and_replace_shape",
                         "native_group_duplicate_align", "native_diagram_batch",
@@ -214,6 +220,7 @@ struct DoctorOutput: Encodable, Sendable {
     let abiResolution: String?
     let freeformRunning: Bool
     let freeformHasVisibleWindows: Bool
+    let liveRefresh: Bool
     /// Full Disk Access, named `permission` like every other app's doctor.
     let permission: String
     let groupContainerReadable: Bool

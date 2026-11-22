@@ -596,45 +596,87 @@ public final class FreeformWriter: @unchecked Sendable {
     public let store: FreeformStore
     private let isAppRunning: () -> Bool
     private let hasVisibleWindows: () -> Bool
+    private let isAppActive: () -> Bool
+    private let liveRefreshEnabled: () -> Bool
     private let terminateApp: () -> Bool
+    private let reopenApp: (_ boardID: String?, _ activate: Bool) -> Void
     private let bridgeFactory: () throws -> FreeformNativeBridge
+    /// Sync status from the most recent native write (live_refreshed or pending_until_app_launch).
+    public private(set) var lastWriteSync: String = "pending_until_app_launch"
 
     public init(
         store: FreeformStore,
         isAppRunning: @escaping () -> Bool = { FreeformImporter.isAppRunning },
         hasVisibleWindows: @escaping () -> Bool = { FreeformImporter.hasVisibleWindows },
+        isAppActive: @escaping () -> Bool = { FreeformImporter.isAppActive },
+        liveRefreshEnabled: @escaping () -> Bool = { FreeformImporter.liveRefreshEnabled() },
         terminateApp: @escaping () -> Bool = { FreeformImporter.terminateApp() },
+        reopenApp: @escaping (_ boardID: String?, _ activate: Bool) -> Void = { boardID, activate in
+            try? FreeformImporter.reopenApp(boardID: boardID, activate: activate)
+        },
         bridge: @escaping () throws -> FreeformNativeBridge = { try FreeformNativeBridge.load() }
     ) {
         self.store = store
         self.isAppRunning = isAppRunning
         self.hasVisibleWindows = hasVisibleWindows
+        self.isAppActive = isAppActive
+        self.liveRefreshEnabled = liveRefreshEnabled
         self.terminateApp = terminateApp
+        self.reopenApp = reopenApp
         self.bridgeFactory = bridge
     }
 
-    /// Validates that native writes can safely proceed against the store.
-    /// If Freeform is running idle in the background with no visible windows, closes it cleanly so
-    /// agents do not get blocked unnecessarily while active user windows are never interrupted.
-    private func requireWritableLocation() throws -> FreeformStoreLocation {
+    /// Runs a native write session with seamless Quick Refresh when Freeform has an open window.
+    private func withWriteSession<T>(
+        reopenBoard: Bool = true,
+        boardID: @escaping (T?) -> String? = { _ in nil },
+        precheck: ((FreeformStoreLocation) throws -> Void)? = nil,
+        _ body: (FreeformStoreLocation) throws -> T
+    ) throws -> T {
+        let location = try store.requireLocation()
+        try precheck?(location)
+        var shouldReopen = false
+        var wasActive = false
         if isAppRunning() {
-            if !hasVisibleWindows(), terminateApp() {
-                // Idle background process closed cleanly without affecting any user window.
+            if !hasVisibleWindows() {
+                guard terminateApp() else {
+                    throw AgentError(
+                        code: "app_running",
+                        message: "Freeform did not exit cleanly before writing.",
+                        hint: "Quit Freeform and retry.")
+                }
+            } else if liveRefreshEnabled() {
+                wasActive = isAppActive()
+                guard terminateApp() else {
+                    throw AgentError(
+                        code: "app_running",
+                        message: "Freeform did not exit in time for Quick Refresh.",
+                        hint: "Quit Freeform and retry.")
+                }
+                shouldReopen = true
             } else {
                 throw AgentError(
                     code: "app_running",
                     message: "Freeform has an open window; native board writes require Freeform to be closed.",
-                    hint: "Close or quit Freeform and retry so changes do not conflict with open windows.")
+                    hint: "Close or quit Freeform, or enable Quick Refresh in ~/.config/gesher/config.json.")
             }
         }
-        return try store.requireLocation()
+        var completed: T?
+        defer {
+            if shouldReopen {
+                reopenApp(reopenBoard ? boardID(completed) : nil, wasActive)
+            }
+        }
+        let result = try body(location)
+        completed = result
+        lastWriteSync = shouldReopen ? "live_refreshed" : "pending_until_app_launch"
+        return result
     }
 
-    private func requireBoardForWrite(
-        _ selector: String, includeDeleted: Bool = false, ifRevision: String? = nil,
-        exactName: Bool = false
-    ) throws -> (location: FreeformStoreLocation, board: FreeformBoardSnapshot, uuid: UUID) {
-        let location = try requireWritableLocation()
+    private func resolveBoardForWrite(
+        _ selector: String, at location: FreeformStoreLocation, includeDeleted: Bool = false,
+        ifRevision: String? = nil, exactName: Bool = false
+    ) throws -> (board: FreeformBoardSnapshot, uuid: UUID) {
         let board = try store.withSnapshot(location) { snapshot -> FreeformBoardSnapshot in
             let boards = try snapshot.boards(includeDeleted: includeDeleted)
             return try EntityResolver.resolve(
@@ -658,7 +700,31 @@ public final class FreeformWriter: @unchecked Sendable {
         guard let uuid = UUID(uuidString: board.id) else {
             throw AgentError.notFound("board", board.id)
         }
-        return (location, board, uuid)
+        return (board, uuid)
+    }
+
+    private func withBoardWrite<T>(
+        _ selector: String, includeDeleted: Bool = false, ifRevision: String? = nil,
+        exactName: Bool = false, reopenBoard: Bool = true,
+        _ body: (FreeformStoreLocation, FreeformBoardSnapshot, UUID) throws -> T
+    ) throws -> T {
+        var resolvedID: String?
+        return try withWriteSession(
+            reopenBoard: reopenBoard,
+            boardID: { _ in resolvedID },
+            precheck: { location in
+                let (_, uuid) = try self.resolveBoardForWrite(
+                    selector, at: location, includeDeleted: includeDeleted, ifRevision: ifRevision,
+                    exactName: exactName)
+                resolvedID = uuid.uuidString
+            },
+            { location in
+                let (board, uuid) = try self.resolveBoardForWrite(
+                    selector, at: location, includeDeleted: includeDeleted, ifRevision: ifRevision,
+                    exactName: exactName)
+                resolvedID = uuid.uuidString
+                return try body(location, board, uuid)
+            })
     }
 
     private func readbackBoard(_ id: String, at location: FreeformStoreLocation, includeDeleted: Bool = false) throws
@@ -699,16 +765,17 @@ public final class FreeformWriter: @unchecked Sendable {
     public func createBoard(title: String) throws -> FreeformBoardWriteResult {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AgentError.invalid("The board title is empty.") }
-        let location = try requireWritableLocation()
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> UUID in
-            let (board, uuid) = try bridge.createBoard(in: nativeStore, title: trimmed)
-            try bridge.saveBoard(board)
-            return uuid
+        return try withWriteSession(boardID: { $0?.board.id }) { location in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> UUID in
+                let (board, uuid) = try bridge.createBoard(in: nativeStore, title: trimmed)
+                try bridge.saveBoard(board)
+                return uuid
+            }
+            let (readback, _) = try readbackBoard(createdID.uuidString, at: location)
+            return FreeformBoardWriteResult(board: readback)
         }
-        let (readback, _) = try readbackBoard(createdID.uuidString, at: location)
-        return FreeformBoardWriteResult(board: readback)
     }
 
     public func renameBoard(selector: String, title: String, ifRevision: String? = nil) throws
@@ -716,39 +783,41 @@ public final class FreeformWriter: @unchecked Sendable {
     {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AgentError.invalid("The new board title is empty.") }
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        try bridge.withStore(at: boardsDir) { nativeStore in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let cc = bridge.makeCommandController(for: board)
-            bridge.sendVoidId(board, "setTitle:", trimmed as NSString)
-            bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
-            try bridge.saveBoard(board)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            try bridge.withStore(at: boardsDir) { nativeStore in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let cc = bridge.makeCommandController(for: board)
+                bridge.sendVoidId(board, "setTitle:", trimmed as NSString)
+                bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
+                try bridge.saveBoard(board)
+            }
+            let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard readback.title == trimmed else {
+                throw PlatformError.mutationUnverified(
+                    type: "board", id: boardUUID.uuidString,
+                    reason: "Title read back as '\(readback.title ?? "")' instead of '\(trimmed)'.")
+            }
+            return FreeformBoardWriteResult(board: readback)
         }
-        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard readback.title == trimmed else {
-            throw PlatformError.mutationUnverified(
-                type: "board", id: boardUUID.uuidString,
-                reason: "Title read back as '\(readback.title ?? "")' instead of '\(trimmed)'.")
-        }
-        return FreeformBoardWriteResult(board: readback)
     }
 
     public func setBoardFavorite(selector: String, favorite: Bool) throws -> FreeformBoardWriteResult {
-        let (location, _, boardUUID) = try requireBoardForWrite(selector)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        try bridge.withStore(at: boardsDir) { nativeStore in
-            try bridge.setFavorite(in: nativeStore, boardID: boardUUID, favorite: favorite)
+        return try withBoardWrite(selector) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            try bridge.withStore(at: boardsDir) { nativeStore in
+                try bridge.setFavorite(in: nativeStore, boardID: boardUUID, favorite: favorite)
+            }
+            let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard readback.favorite == favorite else {
+                throw PlatformError.mutationUnverified(
+                    type: "board", id: boardUUID.uuidString,
+                    reason: "Favorite state did not match expected value after save.")
+            }
+            return FreeformBoardWriteResult(board: readback)
         }
-        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard readback.favorite == favorite else {
-            throw PlatformError.mutationUnverified(
-                type: "board", id: boardUUID.uuidString,
-                reason: "Favorite state did not match expected value after save.")
-        }
-        return FreeformBoardWriteResult(board: readback)
     }
 
     public func setBoardAppearance(selector: String, dotGrid: Bool?, connectorMode: Bool?) throws
@@ -757,53 +826,58 @@ public final class FreeformWriter: @unchecked Sendable {
         guard dotGrid != nil || connectorMode != nil else {
             throw AgentError.invalid("Specify --dot-grid and/or --connector-mode.")
         }
-        let (location, _, boardUUID) = try requireBoardForWrite(selector)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        try bridge.withStore(at: boardsDir) { nativeStore in
-            if let dotGrid {
-                try bridge.setCanvasDotGrid(in: nativeStore, boardID: boardUUID, visible: dotGrid)
+        return try withBoardWrite(selector) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            try bridge.withStore(at: boardsDir) { nativeStore in
+                if let dotGrid {
+                    try bridge.setCanvasDotGrid(in: nativeStore, boardID: boardUUID, visible: dotGrid)
+                }
+                if let connectorMode {
+                    try bridge.setConnectorMode(in: nativeStore, boardID: boardUUID, enabled: connectorMode)
+                }
             }
-            if let connectorMode {
-                try bridge.setConnectorMode(in: nativeStore, boardID: boardUUID, enabled: connectorMode)
-            }
+            let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+            return FreeformBoardWriteResult(board: readback)
         }
-        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
-        return FreeformBoardWriteResult(board: readback)
     }
 
     public func deleteBoard(selector: String, ifRevision: String? = nil) throws -> FreeformBoardWriteResult {
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision, exactName: true)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        try bridge.withStore(at: boardsDir) { nativeStore in
-            try bridge.deleteBoard(in: nativeStore, boardID: boardUUID)
+        return try withBoardWrite(selector, ifRevision: ifRevision, exactName: true, reopenBoard: false) {
+            location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            try bridge.withStore(at: boardsDir) { nativeStore in
+                try bridge.deleteBoard(in: nativeStore, boardID: boardUUID)
+            }
+            let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location, includeDeleted: true)
+            guard readback.deleted else {
+                throw PlatformError.mutationUnverified(
+                    type: "board", id: boardUUID.uuidString,
+                    reason: "Board did not move to Recently Deleted on readback.")
+            }
+            return FreeformBoardWriteResult(board: readback)
         }
-        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location, includeDeleted: true)
-        guard readback.deleted else {
-            throw PlatformError.mutationUnverified(
-                type: "board", id: boardUUID.uuidString,
-                reason: "Board did not move to Recently Deleted on readback.")
-        }
-        return FreeformBoardWriteResult(board: readback)
     }
 
     public func restoreBoard(selector: String) throws -> FreeformBoardWriteResult {
-        let (location, board, boardUUID) = try requireBoardForWrite(selector, includeDeleted: true)
-        guard board.deleted else {
-            return FreeformBoardWriteResult(board: board)
+        return try withBoardWrite(selector, includeDeleted: true) { location, board, boardUUID in
+            guard board.deleted else {
+                return FreeformBoardWriteResult(board: board)
+            }
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            try bridge.withStore(at: boardsDir) { nativeStore in
+                try bridge.undeleteBoard(in: nativeStore, boardID: boardUUID)
+            }
+            let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location, includeDeleted: false)
+            guard !readback.deleted else {
+                throw PlatformError.mutationUnverified(
+                    type: "board", id: boardUUID.uuidString, reason: "Board is still in Recently Deleted after restore."
+                )
+            }
+            return FreeformBoardWriteResult(board: readback)
         }
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        try bridge.withStore(at: boardsDir) { nativeStore in
-            try bridge.undeleteBoard(in: nativeStore, boardID: boardUUID)
-        }
-        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location, includeDeleted: false)
-        guard !readback.deleted else {
-            throw PlatformError.mutationUnverified(
-                type: "board", id: boardUUID.uuidString, reason: "Board is still in Recently Deleted after restore.")
-        }
-        return FreeformBoardWriteResult(board: readback)
     }
 
     // MARK: - Native Item Creation
@@ -820,42 +894,45 @@ public final class FreeformWriter: @unchecked Sendable {
         if let w = spec.width { try validateFinite(w, name: "width", positive: true) }
         if let h = spec.height { try validateFinite(h, name: "height", positive: true) }
 
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let root = bridge.getObject(board, "rootContainer")!
-            let factory = bridge.makeFactory(for: board)
-            let cc = bridge.makeCommandController(for: board)
-            let item: AnyObject
-            if let style = spec.style, style.hasStyling {
-                item = bridge.makeAttributedTextbox(
-                    factory: factory, attributedText: style.attributedString(for: spec.text))
-            } else {
-                item = bridge.makeTextbox(factory: factory, position: CGPoint(x: spec.x, y: spec.y), text: spec.text)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let root = bridge.getObject(board, "rootContainer")!
+                let factory = bridge.makeFactory(for: board)
+                let cc = bridge.makeCommandController(for: board)
+                let item: AnyObject
+                if let style = spec.style, style.hasStyling {
+                    item = bridge.makeAttributedTextbox(
+                        factory: factory, attributedText: style.attributedString(for: spec.text))
+                } else {
+                    item = bridge.makeTextbox(
+                        factory: factory, position: CGPoint(x: spec.x, y: spec.y), text: spec.text)
+                }
+                guard let id = bridge.itemUUIDString(item) else {
+                    throw PlatformError.saveFailed("New text box did not have an identifier.")
+                }
+                bridge.withCommandGroup(on: cc) {
+                    bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [item]), on: cc)
+                    let current = bridge.itemGeometryRect(item)
+                    let width = spec.width ?? current?.width ?? 220
+                    let height = spec.height ?? current?.height ?? 60
+                    let geom = bridge.makeGeometry(
+                        x: spec.x, y: spec.y, width: width, height: height, angle: spec.angle)
+                    bridge.enqueue(bridge.makeSetGeometryCommand(item: item, geometry: geom), on: cc)
+                }
+                try bridge.saveBoard(board)
+                return id
             }
-            guard let id = bridge.itemUUIDString(item) else {
-                throw PlatformError.saveFailed("New text box did not have an identifier.")
+            let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard let item = items.first(where: { $0.id == createdID }) else {
+                throw PlatformError.mutationUnverified(
+                    type: "item", id: createdID,
+                    reason: "Text box did not appear on readback; check items list before retrying.")
             }
-            bridge.withCommandGroup(on: cc) {
-                bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [item]), on: cc)
-                let current = bridge.itemGeometryRect(item)
-                let width = spec.width ?? current?.width ?? 220
-                let height = spec.height ?? current?.height ?? 60
-                let geom = bridge.makeGeometry(x: spec.x, y: spec.y, width: width, height: height, angle: spec.angle)
-                bridge.enqueue(bridge.makeSetGeometryCommand(item: item, geometry: geom), on: cc)
-            }
-            try bridge.saveBoard(board)
-            return id
+            return FreeformItemWriteResult(board: readback, item: item)
         }
-        let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard let item = items.first(where: { $0.id == createdID }) else {
-            throw PlatformError.mutationUnverified(
-                type: "item", id: createdID,
-                reason: "Text box did not appear on readback; check items list before retrying.")
-        }
-        return FreeformItemWriteResult(board: readback, item: item)
     }
 
     public func addShape(board selector: String, spec: FreeformShapeSpec, ifRevision: String? = nil) throws
@@ -868,45 +945,47 @@ public final class FreeformWriter: @unchecked Sendable {
         try validateFinite(spec.angle, name: "angle")
         try validateFinite(spec.strokeWidth, name: "strokeWidth", positive: true)
 
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let root = bridge.getObject(board, "rootContainer")!
-            let factory = bridge.makeFactory(for: board)
-            let cc = bridge.makeCommandController(for: board)
-            let item = bridge.makeShape(factory: factory, shapeType: spec.shape.nativeShapeType)
-            guard let id = bridge.itemUUIDString(item) else {
-                throw PlatformError.saveFailed("New shape did not have an identifier.")
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let root = bridge.getObject(board, "rootContainer")!
+                let factory = bridge.makeFactory(for: board)
+                let cc = bridge.makeCommandController(for: board)
+                let item = bridge.makeShape(factory: factory, shapeType: spec.shape.nativeShapeType)
+                guard let id = bridge.itemUUIDString(item) else {
+                    throw PlatformError.saveFailed("New shape did not have an identifier.")
+                }
+                bridge.withCommandGroup(on: cc) {
+                    bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [item]), on: cc)
+                    let geom = bridge.makeGeometry(
+                        x: spec.x, y: spec.y, width: spec.width, height: spec.height, angle: spec.angle)
+                    bridge.enqueue(bridge.makeSetGeometryCommand(item: item, geometry: geom), on: cc)
+                    if let fill = spec.fill {
+                        bridge.enqueue(
+                            bridge.makeSetFillCommand(shapeItem: item, fill: bridge.makeColorFill(fill)), on: cc)
+                    }
+                    if let stroke = spec.stroke {
+                        let nativeStroke = bridge.makeStroke(
+                            color: stroke, width: spec.strokeWidth, pattern: spec.strokePattern)
+                        bridge.enqueue(bridge.makeSetStrokeCommand(styledItem: item, stroke: nativeStroke), on: cc)
+                    }
+                    if let text = spec.text, !text.isEmpty {
+                        bridge.enqueue(bridge.makeReplaceAllTextCommand(shapeItem: item, text: text), on: cc)
+                    }
+                }
+                try bridge.saveBoard(board)
+                return id
             }
-            bridge.withCommandGroup(on: cc) {
-                bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [item]), on: cc)
-                let geom = bridge.makeGeometry(
-                    x: spec.x, y: spec.y, width: spec.width, height: spec.height, angle: spec.angle)
-                bridge.enqueue(bridge.makeSetGeometryCommand(item: item, geometry: geom), on: cc)
-                if let fill = spec.fill {
-                    bridge.enqueue(bridge.makeSetFillCommand(shapeItem: item, fill: bridge.makeColorFill(fill)), on: cc)
-                }
-                if let stroke = spec.stroke {
-                    let nativeStroke = bridge.makeStroke(
-                        color: stroke, width: spec.strokeWidth, pattern: spec.strokePattern)
-                    bridge.enqueue(bridge.makeSetStrokeCommand(styledItem: item, stroke: nativeStroke), on: cc)
-                }
-                if let text = spec.text, !text.isEmpty {
-                    bridge.enqueue(bridge.makeReplaceAllTextCommand(shapeItem: item, text: text), on: cc)
-                }
+            let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard let item = items.first(where: { $0.id == createdID }) else {
+                throw PlatformError.mutationUnverified(
+                    type: "item", id: createdID,
+                    reason: "Shape did not appear on readback; check items list before retrying.")
             }
-            try bridge.saveBoard(board)
-            return id
+            return FreeformItemWriteResult(board: readback, item: item)
         }
-        let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard let item = items.first(where: { $0.id == createdID }) else {
-            throw PlatformError.mutationUnverified(
-                type: "item", id: createdID,
-                reason: "Shape did not appear on readback; check items list before retrying.")
-        }
-        return FreeformItemWriteResult(board: readback, item: item)
     }
 
     public func addSticky(board selector: String, spec: FreeformStickySpec, ifRevision: String? = nil) throws
@@ -918,39 +997,41 @@ public final class FreeformWriter: @unchecked Sendable {
         try validateFinite(spec.height, name: "height", positive: true)
         try validateFinite(spec.angle, name: "angle")
 
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let root = bridge.getObject(board, "rootContainer")!
-            let factory = bridge.makeFactory(for: board)
-            let cc = bridge.makeCommandController(for: board)
-            let attributed =
-                spec.style?.attributedString(for: spec.text) ?? NSAttributedString(string: spec.text)
-            let item = bridge.makeSticky(factory: factory, attributedText: attributed)
-            guard let id = bridge.itemUUIDString(item) else {
-                throw PlatformError.saveFailed("New sticky note did not have an identifier.")
-            }
-            bridge.withCommandGroup(on: cc) {
-                bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [item]), on: cc)
-                let geom = bridge.makeGeometry(
-                    x: spec.x, y: spec.y, width: spec.width, height: spec.height, angle: spec.angle)
-                bridge.enqueue(bridge.makeSetGeometryCommand(item: item, geometry: geom), on: cc)
-                if let fill = spec.fill {
-                    bridge.enqueue(bridge.makeSetFillCommand(shapeItem: item, fill: bridge.makeColorFill(fill)), on: cc)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let root = bridge.getObject(board, "rootContainer")!
+                let factory = bridge.makeFactory(for: board)
+                let cc = bridge.makeCommandController(for: board)
+                let attributed =
+                    spec.style?.attributedString(for: spec.text) ?? NSAttributedString(string: spec.text)
+                let item = bridge.makeSticky(factory: factory, attributedText: attributed)
+                guard let id = bridge.itemUUIDString(item) else {
+                    throw PlatformError.saveFailed("New sticky note did not have an identifier.")
                 }
+                bridge.withCommandGroup(on: cc) {
+                    bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [item]), on: cc)
+                    let geom = bridge.makeGeometry(
+                        x: spec.x, y: spec.y, width: spec.width, height: spec.height, angle: spec.angle)
+                    bridge.enqueue(bridge.makeSetGeometryCommand(item: item, geometry: geom), on: cc)
+                    if let fill = spec.fill {
+                        bridge.enqueue(
+                            bridge.makeSetFillCommand(shapeItem: item, fill: bridge.makeColorFill(fill)), on: cc)
+                    }
+                }
+                try bridge.saveBoard(board)
+                return id
             }
-            try bridge.saveBoard(board)
-            return id
+            let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard let item = items.first(where: { $0.id == createdID }) else {
+                throw PlatformError.mutationUnverified(
+                    type: "item", id: createdID,
+                    reason: "Sticky note did not appear on readback; check items list before retrying.")
+            }
+            return FreeformItemWriteResult(board: readback, item: item)
         }
-        let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard let item = items.first(where: { $0.id == createdID }) else {
-            throw PlatformError.mutationUnverified(
-                type: "item", id: createdID,
-                reason: "Sticky note did not appear on readback; check items list before retrying.")
-        }
-        return FreeformItemWriteResult(board: readback, item: item)
     }
 
     public func connect(board selector: String, spec: FreeformConnectorSpec, ifRevision: String? = nil) throws
@@ -967,47 +1048,49 @@ public final class FreeformWriter: @unchecked Sendable {
         }
         try validateFinite(spec.strokeWidth, name: "strokeWidth", positive: true)
 
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let root = bridge.getObject(board, "rootContainer")!
-            let rootID = bridge.getObject(root, "id")!
-            guard let fromItem = bridge.getObjectArg(board, "getBoardItemForUUID:", fromUUID as NSUUID) else {
-                throw AgentError.notFound("item", spec.fromID)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let root = bridge.getObject(board, "rootContainer")!
+                let rootID = bridge.getObject(root, "id")!
+                guard let fromItem = bridge.getObjectArg(board, "getBoardItemForUUID:", fromUUID as NSUUID) else {
+                    throw AgentError.notFound("item", spec.fromID)
+                }
+                guard let toItem = bridge.getObjectArg(board, "getBoardItemForUUID:", toUUID as NSUUID) else {
+                    throw AgentError.notFound("item", spec.toID)
+                }
+                let cc = bridge.makeCommandController(for: board)
+                let geom = connectorGeometry(from: fromItem, to: toItem, bridge: bridge)
+                let stroke = bridge.makeStroke(color: spec.stroke, width: spec.strokeWidth, pattern: spec.strokePattern)
+                let headEnd = bridge.makeLineEnd(spec.headEnd)
+                let tailEnd = bridge.makeLineEnd(spec.tailEnd)
+                let connector = bridge.makeConnectionLine(
+                    store: nativeStore, rootContainerID: rootID, geometry: geom, style: spec.style, stroke: stroke,
+                    headLineEnd: headEnd, tailLineEnd: tailEnd)
+                guard let id = bridge.itemUUIDString(connector) else {
+                    throw PlatformError.saveFailed("New connector did not have an identifier.")
+                }
+                bridge.withCommandGroup(on: cc) {
+                    bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [connector]), on: cc)
+                    bridge.enqueue(
+                        bridge.makeSetConnectionCommand(connector: connector, targetItem: fromItem, chirality: 0),
+                        on: cc)
+                    bridge.enqueue(
+                        bridge.makeSetConnectionCommand(connector: connector, targetItem: toItem, chirality: 1), on: cc)
+                }
+                try bridge.saveBoard(board)
+                return id
             }
-            guard let toItem = bridge.getObjectArg(board, "getBoardItemForUUID:", toUUID as NSUUID) else {
-                throw AgentError.notFound("item", spec.toID)
+            let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard let item = items.first(where: { $0.id == createdID }) else {
+                throw PlatformError.mutationUnverified(
+                    type: "connector", id: createdID,
+                    reason: "Connector did not appear on readback; check items list before retrying.")
             }
-            let cc = bridge.makeCommandController(for: board)
-            let geom = connectorGeometry(from: fromItem, to: toItem, bridge: bridge)
-            let stroke = bridge.makeStroke(color: spec.stroke, width: spec.strokeWidth, pattern: spec.strokePattern)
-            let headEnd = bridge.makeLineEnd(spec.headEnd)
-            let tailEnd = bridge.makeLineEnd(spec.tailEnd)
-            let connector = bridge.makeConnectionLine(
-                store: nativeStore, rootContainerID: rootID, geometry: geom, style: spec.style, stroke: stroke,
-                headLineEnd: headEnd, tailLineEnd: tailEnd)
-            guard let id = bridge.itemUUIDString(connector) else {
-                throw PlatformError.saveFailed("New connector did not have an identifier.")
-            }
-            bridge.withCommandGroup(on: cc) {
-                bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [connector]), on: cc)
-                bridge.enqueue(
-                    bridge.makeSetConnectionCommand(connector: connector, targetItem: fromItem, chirality: 0), on: cc)
-                bridge.enqueue(
-                    bridge.makeSetConnectionCommand(connector: connector, targetItem: toItem, chirality: 1), on: cc)
-            }
-            try bridge.saveBoard(board)
-            return id
+            return FreeformItemWriteResult(board: readback, item: item)
         }
-        let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard let item = items.first(where: { $0.id == createdID }) else {
-            throw PlatformError.mutationUnverified(
-                type: "connector", id: createdID,
-                reason: "Connector did not appear on readback; check items list before retrying.")
-        }
-        return FreeformItemWriteResult(board: readback, item: item)
     }
 
     // MARK: - Item Update, Delete, Duplicate, Group, Align
@@ -1028,143 +1111,147 @@ public final class FreeformWriter: @unchecked Sendable {
         if let a = spec.angle { try validateFinite(a, name: "angle") }
         if let sw = spec.strokeWidth { try validateFinite(sw, name: "strokeWidth", positive: true) }
 
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        try bridge.withStore(at: boardsDir) { nativeStore in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", targetUUID as NSUUID) else {
-                throw AgentError.notFound("item", itemID)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            try bridge.withStore(at: boardsDir) { nativeStore in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", targetUUID as NSUUID) else {
+                    throw AgentError.notFound("item", itemID)
+                }
+                try requireUnlocked(item, id: itemID, bridge: bridge, unlocking: spec.locked == false)
+                let cc = bridge.makeCommandController(for: board)
+                try bridge.withCommandGroup(on: cc) {
+                    if spec.locked == false {
+                        bridge.enqueue(bridge.makeSetLockedCommand(item: item, locked: false), on: cc)
+                    }
+                    if spec.x != nil || spec.y != nil || spec.width != nil || spec.height != nil || spec.angle != nil {
+                        let current = bridge.itemGeometryRect(item) ?? (0, 0, 200, 100, 0)
+                        let geom = bridge.makeGeometry(
+                            x: spec.x ?? current.x, y: spec.y ?? current.y,
+                            width: spec.width ?? current.width, height: spec.height ?? current.height,
+                            angle: spec.angle ?? current.angle)
+                        bridge.enqueue(bridge.makeSetGeometryCommand(item: item, geometry: geom), on: cc)
+                    }
+                    if let text = spec.text {
+                        guard item.responds(to: NSSelectorFromString("textStorage")) else {
+                            throw AgentError.invalid(
+                                "Item '\(itemID)' does not support text editing.",
+                                hint: "Only text boxes, shapes and sticky notes hold editable text.")
+                        }
+                        bridge.enqueue(bridge.makeReplaceAllTextCommand(shapeItem: item, text: text), on: cc)
+                    }
+                    if let newShape = spec.shape {
+                        guard item.responds(to: NSSelectorFromString("allowsChangeShape")),
+                            bridge.getBool(item, "allowsChangeShape")
+                        else {
+                            throw AgentError.invalid("Item '\(itemID)' does not support replacing its shape.")
+                        }
+                        let factory = bridge.makeFactory(for: board)
+                        let template = bridge.makeShape(factory: factory, shapeType: newShape.nativeShapeType)
+                        guard let pathSource = bridge.getObject(template, "pathSource") else {
+                            throw PlatformError.saveFailed(
+                                "Could not build path source for shape '\(newShape.rawValue)'.")
+                        }
+                        bridge.enqueue(bridge.makeSetPathSourceCommand(shapeItem: item, pathSource: pathSource), on: cc)
+                    }
+                    if let description = spec.description {
+                        bridge.enqueue(bridge.makeSetDescriptionCommand(item: item, description: description), on: cc)
+                    }
+                    if spec.clearFill {
+                        guard item.responds(to: NSSelectorFromString("supportsFill")) else {
+                            throw AgentError.invalid("Item '\(itemID)' does not support fill.")
+                        }
+                        bridge.enqueue(bridge.makeSetFillCommand(shapeItem: item, fill: nil), on: cc)
+                    } else if let fill = spec.fill {
+                        guard item.responds(to: NSSelectorFromString("supportsFill")) else {
+                            throw AgentError.invalid("Item '\(itemID)' does not support fill.")
+                        }
+                        bridge.enqueue(
+                            bridge.makeSetFillCommand(shapeItem: item, fill: bridge.makeColorFill(fill)), on: cc)
+                    }
+                    if spec.clearStroke {
+                        guard item.responds(to: NSSelectorFromString("stroke")) else {
+                            throw AgentError.invalid("Item '\(itemID)' does not support stroke.")
+                        }
+                        bridge.enqueue(
+                            bridge.makeSetStrokeCommand(styledItem: item, stroke: bridge.makeEmptyStroke()), on: cc)
+                    } else if spec.stroke != nil || spec.strokeWidth != nil || spec.strokePattern != nil {
+                        guard item.responds(to: NSSelectorFromString("stroke")) else {
+                            throw AgentError.invalid("Item '\(itemID)' does not support stroke.")
+                        }
+                        let color = spec.stroke ?? FreeformColor(red: 0.25, green: 0.25, blue: 0.28)
+                        let width = spec.strokeWidth ?? 2
+                        let pattern = spec.strokePattern ?? .solid
+                        let stroke = bridge.makeStroke(color: color, width: width, pattern: pattern)
+                        bridge.enqueue(bridge.makeSetStrokeCommand(styledItem: item, stroke: stroke), on: cc)
+                    }
+                    if let headEnd = spec.headEnd {
+                        guard item.responds(to: NSSelectorFromString("headLineEnd")) else {
+                            throw AgentError.invalid("Item '\(itemID)' does not support line ends.")
+                        }
+                        bridge.enqueue(
+                            bridge.makeSetLineEndCommand(
+                                shapeItem: item, lineEnd: bridge.makeLineEnd(headEnd), chirality: 0), on: cc)
+                    }
+                    if let tailEnd = spec.tailEnd {
+                        guard item.responds(to: NSSelectorFromString("tailLineEnd")) else {
+                            throw AgentError.invalid("Item '\(itemID)' does not support line ends.")
+                        }
+                        bridge.enqueue(
+                            bridge.makeSetLineEndCommand(
+                                shapeItem: item, lineEnd: bridge.makeLineEnd(tailEnd), chirality: 1), on: cc)
+                    }
+                    if let fromID = spec.fromID {
+                        guard item.responds(to: NSSelectorFromString("setConnectedFrom:")) else {
+                            throw AgentError.invalid("Item '\(itemID)' is not a connector.")
+                        }
+                        guard let fromUUID = UUID(uuidString: fromID),
+                            let target = bridge.getObjectArg(board, "getBoardItemForUUID:", fromUUID as NSUUID)
+                        else { throw AgentError.notFound("item", fromID) }
+                        bridge.enqueue(
+                            bridge.makeSetConnectionCommand(connector: item, targetItem: target, chirality: 0), on: cc)
+                    }
+                    if let toID = spec.toID {
+                        guard item.responds(to: NSSelectorFromString("setConnectedTo:")) else {
+                            throw AgentError.invalid("Item '\(itemID)' is not a connector.")
+                        }
+                        guard let toUUID = UUID(uuidString: toID),
+                            let target = bridge.getObjectArg(board, "getBoardItemForUUID:", toUUID as NSUUID)
+                        else { throw AgentError.notFound("item", toID) }
+                        bridge.enqueue(
+                            bridge.makeSetConnectionCommand(connector: item, targetItem: target, chirality: 1), on: cc)
+                    }
+                    if let zTarget = spec.zOrder {
+                        let parent =
+                            bridge.getObject(item, "parentContainerItem") ?? bridge.getObject(board, "rootContainer")!
+                        let children = (bridge.getObject(parent, "childItems") as? [AnyObject]) ?? []
+                        let maxIndex = max(children.count - 1, 0)
+                        let targetIndex: Int
+                        switch zTarget {
+                        case .back: targetIndex = 0
+                        case .front: targetIndex = maxIndex
+                        case .index(let idx): targetIndex = min(max(idx, 0), maxIndex)
+                        }
+                        bridge.enqueue(
+                            bridge.makeReorderCommand(
+                                parentContainer: parent, children: [item], targetIndices: IndexSet(integer: targetIndex)
+                            ),
+                            on: cc)
+                    }
+                    if spec.locked == true {
+                        bridge.enqueue(bridge.makeSetLockedCommand(item: item, locked: true), on: cc)
+                    }
+                }
+                try bridge.saveBoard(board)
             }
-            try requireUnlocked(item, id: itemID, bridge: bridge, unlocking: spec.locked == false)
-            let cc = bridge.makeCommandController(for: board)
-            try bridge.withCommandGroup(on: cc) {
-                if spec.locked == false {
-                    bridge.enqueue(bridge.makeSetLockedCommand(item: item, locked: false), on: cc)
-                }
-                if spec.x != nil || spec.y != nil || spec.width != nil || spec.height != nil || spec.angle != nil {
-                    let current = bridge.itemGeometryRect(item) ?? (0, 0, 200, 100, 0)
-                    let geom = bridge.makeGeometry(
-                        x: spec.x ?? current.x, y: spec.y ?? current.y,
-                        width: spec.width ?? current.width, height: spec.height ?? current.height,
-                        angle: spec.angle ?? current.angle)
-                    bridge.enqueue(bridge.makeSetGeometryCommand(item: item, geometry: geom), on: cc)
-                }
-                if let text = spec.text {
-                    guard item.responds(to: NSSelectorFromString("textStorage")) else {
-                        throw AgentError.invalid(
-                            "Item '\(itemID)' does not support text editing.",
-                            hint: "Only text boxes, shapes and sticky notes hold editable text.")
-                    }
-                    bridge.enqueue(bridge.makeReplaceAllTextCommand(shapeItem: item, text: text), on: cc)
-                }
-                if let newShape = spec.shape {
-                    guard item.responds(to: NSSelectorFromString("allowsChangeShape")),
-                        bridge.getBool(item, "allowsChangeShape")
-                    else {
-                        throw AgentError.invalid("Item '\(itemID)' does not support replacing its shape.")
-                    }
-                    let factory = bridge.makeFactory(for: board)
-                    let template = bridge.makeShape(factory: factory, shapeType: newShape.nativeShapeType)
-                    guard let pathSource = bridge.getObject(template, "pathSource") else {
-                        throw PlatformError.saveFailed("Could not build path source for shape '\(newShape.rawValue)'.")
-                    }
-                    bridge.enqueue(bridge.makeSetPathSourceCommand(shapeItem: item, pathSource: pathSource), on: cc)
-                }
-                if let description = spec.description {
-                    bridge.enqueue(bridge.makeSetDescriptionCommand(item: item, description: description), on: cc)
-                }
-                if spec.clearFill {
-                    guard item.responds(to: NSSelectorFromString("supportsFill")) else {
-                        throw AgentError.invalid("Item '\(itemID)' does not support fill.")
-                    }
-                    bridge.enqueue(bridge.makeSetFillCommand(shapeItem: item, fill: nil), on: cc)
-                } else if let fill = spec.fill {
-                    guard item.responds(to: NSSelectorFromString("supportsFill")) else {
-                        throw AgentError.invalid("Item '\(itemID)' does not support fill.")
-                    }
-                    bridge.enqueue(bridge.makeSetFillCommand(shapeItem: item, fill: bridge.makeColorFill(fill)), on: cc)
-                }
-                if spec.clearStroke {
-                    guard item.responds(to: NSSelectorFromString("stroke")) else {
-                        throw AgentError.invalid("Item '\(itemID)' does not support stroke.")
-                    }
-                    bridge.enqueue(
-                        bridge.makeSetStrokeCommand(styledItem: item, stroke: bridge.makeEmptyStroke()), on: cc)
-                } else if spec.stroke != nil || spec.strokeWidth != nil || spec.strokePattern != nil {
-                    guard item.responds(to: NSSelectorFromString("stroke")) else {
-                        throw AgentError.invalid("Item '\(itemID)' does not support stroke.")
-                    }
-                    let color = spec.stroke ?? FreeformColor(red: 0.25, green: 0.25, blue: 0.28)
-                    let width = spec.strokeWidth ?? 2
-                    let pattern = spec.strokePattern ?? .solid
-                    let stroke = bridge.makeStroke(color: color, width: width, pattern: pattern)
-                    bridge.enqueue(bridge.makeSetStrokeCommand(styledItem: item, stroke: stroke), on: cc)
-                }
-                if let headEnd = spec.headEnd {
-                    guard item.responds(to: NSSelectorFromString("headLineEnd")) else {
-                        throw AgentError.invalid("Item '\(itemID)' does not support line ends.")
-                    }
-                    bridge.enqueue(
-                        bridge.makeSetLineEndCommand(
-                            shapeItem: item, lineEnd: bridge.makeLineEnd(headEnd), chirality: 0), on: cc)
-                }
-                if let tailEnd = spec.tailEnd {
-                    guard item.responds(to: NSSelectorFromString("tailLineEnd")) else {
-                        throw AgentError.invalid("Item '\(itemID)' does not support line ends.")
-                    }
-                    bridge.enqueue(
-                        bridge.makeSetLineEndCommand(
-                            shapeItem: item, lineEnd: bridge.makeLineEnd(tailEnd), chirality: 1), on: cc)
-                }
-                if let fromID = spec.fromID {
-                    guard item.responds(to: NSSelectorFromString("setConnectedFrom:")) else {
-                        throw AgentError.invalid("Item '\(itemID)' is not a connector.")
-                    }
-                    guard let fromUUID = UUID(uuidString: fromID),
-                        let target = bridge.getObjectArg(board, "getBoardItemForUUID:", fromUUID as NSUUID)
-                    else { throw AgentError.notFound("item", fromID) }
-                    bridge.enqueue(
-                        bridge.makeSetConnectionCommand(connector: item, targetItem: target, chirality: 0), on: cc)
-                }
-                if let toID = spec.toID {
-                    guard item.responds(to: NSSelectorFromString("setConnectedTo:")) else {
-                        throw AgentError.invalid("Item '\(itemID)' is not a connector.")
-                    }
-                    guard let toUUID = UUID(uuidString: toID),
-                        let target = bridge.getObjectArg(board, "getBoardItemForUUID:", toUUID as NSUUID)
-                    else { throw AgentError.notFound("item", toID) }
-                    bridge.enqueue(
-                        bridge.makeSetConnectionCommand(connector: item, targetItem: target, chirality: 1), on: cc)
-                }
-                if let zTarget = spec.zOrder {
-                    let parent =
-                        bridge.getObject(item, "parentContainerItem") ?? bridge.getObject(board, "rootContainer")!
-                    let children = (bridge.getObject(parent, "childItems") as? [AnyObject]) ?? []
-                    let maxIndex = max(children.count - 1, 0)
-                    let targetIndex: Int
-                    switch zTarget {
-                    case .back: targetIndex = 0
-                    case .front: targetIndex = maxIndex
-                    case .index(let idx): targetIndex = min(max(idx, 0), maxIndex)
-                    }
-                    bridge.enqueue(
-                        bridge.makeReorderCommand(
-                            parentContainer: parent, children: [item], targetIndices: IndexSet(integer: targetIndex)),
-                        on: cc)
-                }
-                if spec.locked == true {
-                    bridge.enqueue(bridge.makeSetLockedCommand(item: item, locked: true), on: cc)
-                }
+            let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard let updated = items.first(where: { $0.id == targetUUID.uuidString }) else {
+                throw PlatformError.mutationUnverified(
+                    type: "item", id: targetUUID.uuidString, reason: "Updated item was missing on readback.")
             }
-            try bridge.saveBoard(board)
+            return FreeformItemWriteResult(board: readback, item: updated)
         }
-        let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard let updated = items.first(where: { $0.id == targetUUID.uuidString }) else {
-            throw PlatformError.mutationUnverified(
-                type: "item", id: targetUUID.uuidString, reason: "Updated item was missing on readback.")
-        }
-        return FreeformItemWriteResult(board: readback, item: updated)
     }
 
     // MARK: - Native Tables, Export & Scenes
@@ -1182,34 +1269,35 @@ public final class FreeformWriter: @unchecked Sendable {
         try validateFinite(spec.width, name: "width", positive: true)
         try validateFinite(spec.height, name: "height", positive: true)
 
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let cellGrid =
-            spec.cells ?? Array(repeating: Array(repeating: "", count: effectiveCols), count: effectiveRows)
-        let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let root = bridge.getObject(board, "rootContainer")!
-            let factory = bridge.makeFactory(for: board)
-            let cc = bridge.makeCommandController(for: board)
-            let geom = bridge.makeGeometry(x: spec.x, y: spec.y, width: spec.width, height: spec.height)
-            let table = try bridge.makePopulatedTable(
-                factory: factory, cells: cellGrid, geometry: geom, rtl: spec.rtl)
-            guard let id = bridge.itemUUIDString(table) else {
-                throw PlatformError.saveFailed("New table did not have an identifier.")
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let cellGrid =
+                spec.cells ?? Array(repeating: Array(repeating: "", count: effectiveCols), count: effectiveRows)
+            let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let root = bridge.getObject(board, "rootContainer")!
+                let factory = bridge.makeFactory(for: board)
+                let cc = bridge.makeCommandController(for: board)
+                let geom = bridge.makeGeometry(x: spec.x, y: spec.y, width: spec.width, height: spec.height)
+                let table = try bridge.makePopulatedTable(
+                    factory: factory, cells: cellGrid, geometry: geom, rtl: spec.rtl)
+                guard let id = bridge.itemUUIDString(table) else {
+                    throw PlatformError.saveFailed("New table did not have an identifier.")
+                }
+                bridge.withCommandGroup(on: cc) {
+                    bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [table]), on: cc)
+                }
+                try bridge.saveBoard(board)
+                return id
             }
-            bridge.withCommandGroup(on: cc) {
-                bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [table]), on: cc)
+            let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard let item = items.first(where: { $0.id == createdID }) else {
+                throw PlatformError.mutationUnverified(
+                    type: "table", id: createdID, reason: "Table did not appear on readback.")
             }
-            try bridge.saveBoard(board)
-            return id
+            return FreeformItemWriteResult(board: readback, item: item)
         }
-        let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard let item = items.first(where: { $0.id == createdID }) else {
-            throw PlatformError.mutationUnverified(
-                type: "table", id: createdID, reason: "Table did not appear on readback.")
-        }
-        return FreeformItemWriteResult(board: readback, item: item)
     }
 
     /// Reads the rows, columns and cell contents of a table item on a read-only copy of the store.
@@ -1249,28 +1337,29 @@ public final class FreeformWriter: @unchecked Sendable {
         guard let tableUUID = UUID(uuidString: itemID) else {
             throw AgentError.invalid("Invalid table item UUID '\(itemID)'.")
         }
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let updatedTable = try bridge.withStore(at: boardsDir) { nativeStore -> FreeformTableSnapshot in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", tableUUID as NSUUID) else {
-                throw AgentError.notFound("table", itemID)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let updatedTable = try bridge.withStore(at: boardsDir) { nativeStore -> FreeformTableSnapshot in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", tableUUID as NSUUID) else {
+                    throw AgentError.notFound("table", itemID)
+                }
+                guard item.responds(to: NSSelectorFromString("rowCount")) else {
+                    throw AgentError.invalid("Item '\(itemID)' is not a table.")
+                }
+                try requireUnlocked(item, id: itemID, bridge: bridge)
+                let cmd = try bridge.makeSetTableCellCommand(tableItem: item, row: row, column: column, text: text)
+                let cc = bridge.makeCommandController(for: board)
+                bridge.withCommandGroup(on: cc) {
+                    bridge.enqueue(cmd, on: cc)
+                }
+                try bridge.saveBoard(board)
+                return bridge.readTable(item)
             }
-            guard item.responds(to: NSSelectorFromString("rowCount")) else {
-                throw AgentError.invalid("Item '\(itemID)' is not a table.")
-            }
-            try requireUnlocked(item, id: itemID, bridge: bridge)
-            let cmd = try bridge.makeSetTableCellCommand(tableItem: item, row: row, column: column, text: text)
-            let cc = bridge.makeCommandController(for: board)
-            bridge.withCommandGroup(on: cc) {
-                bridge.enqueue(cmd, on: cc)
-            }
-            try bridge.saveBoard(board)
-            return bridge.readTable(item)
+            let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+            return FreeformTableResult(board: readback, table: updatedTable)
         }
-        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
-        return FreeformTableResult(board: readback, table: updatedTable)
     }
 
     /// Copies the store to a temporary directory and renders a board via Freeform's own `CRLCanvasImager`
@@ -1329,25 +1418,26 @@ public final class FreeformWriter: @unchecked Sendable {
         try validateFinite(y, name: "y")
         try validateFinite(width, name: "width", positive: true)
         try validateFinite(height, name: "height", positive: true)
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let sceneUUID = UUID()
-        let scenes = try bridge.withStore(at: boardsDir) { nativeStore -> [FreeformSceneSnapshot] in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let cc = bridge.makeCommandController(for: board)
-            try bridge.createScene(
-                on: board, id: sceneUUID, rect: CGRect(x: x, y: y, width: width, height: height), name: name)
-            bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
-            try bridge.saveBoard(board)
-            return bridge.listScenes(on: board)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let sceneUUID = UUID()
+            let scenes = try bridge.withStore(at: boardsDir) { nativeStore -> [FreeformSceneSnapshot] in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let cc = bridge.makeCommandController(for: board)
+                try bridge.createScene(
+                    on: board, id: sceneUUID, rect: CGRect(x: x, y: y, width: width, height: height), name: name)
+                bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
+                try bridge.saveBoard(board)
+                return bridge.listScenes(on: board)
+            }
+            let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard let created = scenes.first(where: { $0.id == sceneUUID.uuidString }) else {
+                throw PlatformError.mutationUnverified(
+                    type: "scene", id: sceneUUID.uuidString, reason: "Scene did not appear after save.")
+            }
+            return FreeformSceneWriteResult(board: readback, scene: created)
         }
-        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard let created = scenes.first(where: { $0.id == sceneUUID.uuidString }) else {
-            throw PlatformError.mutationUnverified(
-                type: "scene", id: sceneUUID.uuidString, reason: "Scene did not appear after save.")
-        }
-        return FreeformSceneWriteResult(board: readback, scene: created)
     }
 
     public func updateScene(
@@ -1364,35 +1454,36 @@ public final class FreeformWriter: @unchecked Sendable {
         if let y { try validateFinite(y, name: "y") }
         if let width { try validateFinite(width, name: "width", positive: true) }
         if let height { try validateFinite(height, name: "height", positive: true) }
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let scenes = try bridge.withStore(at: boardsDir) { nativeStore -> [FreeformSceneSnapshot] in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let existing = bridge.listScenes(on: board)
-            guard let current = existing.first(where: { $0.id == sceneUUID.uuidString }) else {
-                throw AgentError.notFound("scene", sceneID)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let scenes = try bridge.withStore(at: boardsDir) { nativeStore -> [FreeformSceneSnapshot] in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let existing = bridge.listScenes(on: board)
+                guard let current = existing.first(where: { $0.id == sceneUUID.uuidString }) else {
+                    throw AgentError.notFound("scene", sceneID)
+                }
+                let cc = bridge.makeCommandController(for: board)
+                if let name {
+                    _ = bridge.setSceneName(on: board, id: sceneUUID, name: name)
+                }
+                if x != nil || y != nil || width != nil || height != nil {
+                    let rect = CGRect(
+                        x: x ?? current.x, y: y ?? current.y, width: width ?? current.width,
+                        height: height ?? current.height)
+                    _ = bridge.setSceneRect(on: board, id: sceneUUID, rect: rect)
+                }
+                bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
+                try bridge.saveBoard(board)
+                return bridge.listScenes(on: board)
             }
-            let cc = bridge.makeCommandController(for: board)
-            if let name {
-                _ = bridge.setSceneName(on: board, id: sceneUUID, name: name)
+            let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard let updated = scenes.first(where: { $0.id == sceneUUID.uuidString }) else {
+                throw PlatformError.mutationUnverified(
+                    type: "scene", id: sceneUUID.uuidString, reason: "Updated scene was missing on readback.")
             }
-            if x != nil || y != nil || width != nil || height != nil {
-                let rect = CGRect(
-                    x: x ?? current.x, y: y ?? current.y, width: width ?? current.width,
-                    height: height ?? current.height)
-                _ = bridge.setSceneRect(on: board, id: sceneUUID, rect: rect)
-            }
-            bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
-            try bridge.saveBoard(board)
-            return bridge.listScenes(on: board)
+            return FreeformSceneWriteResult(board: readback, scene: updated)
         }
-        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard let updated = scenes.first(where: { $0.id == sceneUUID.uuidString }) else {
-            throw PlatformError.mutationUnverified(
-                type: "scene", id: sceneUUID.uuidString, reason: "Updated scene was missing on readback.")
-        }
-        return FreeformSceneWriteResult(board: readback, scene: updated)
     }
 
     public func deleteScene(board selector: String, sceneID: String, ifRevision: String? = nil) throws
@@ -1401,24 +1492,25 @@ public final class FreeformWriter: @unchecked Sendable {
         guard let sceneUUID = UUID(uuidString: sceneID) else {
             throw AgentError.invalid("Invalid scene UUID '\(sceneID)'.")
         }
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        try bridge.withStore(at: boardsDir) { nativeStore in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let existing = bridge.listScenes(on: board)
-            guard existing.contains(where: { $0.id == sceneUUID.uuidString }) else {
-                throw AgentError.notFound("scene", sceneID)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            try bridge.withStore(at: boardsDir) { nativeStore in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let existing = bridge.listScenes(on: board)
+                guard existing.contains(where: { $0.id == sceneUUID.uuidString }) else {
+                    throw AgentError.notFound("scene", sceneID)
+                }
+                let cc = bridge.makeCommandController(for: board)
+                guard bridge.deleteScene(on: board, id: sceneUUID) else {
+                    throw PlatformError.saveFailed("Freeform failed to delete scene \(sceneID).")
+                }
+                bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
+                try bridge.saveBoard(board)
             }
-            let cc = bridge.makeCommandController(for: board)
-            guard bridge.deleteScene(on: board, id: sceneUUID) else {
-                throw PlatformError.saveFailed("Freeform failed to delete scene \(sceneID).")
-            }
-            bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
-            try bridge.saveBoard(board)
+            let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+            return FreeformBoardWriteResult(board: readback)
         }
-        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
-        return FreeformBoardWriteResult(board: readback)
     }
 
     private func withReadOnlyStoreCopy<T>(at location: FreeformStoreLocation, _ body: (URL) throws -> T) throws -> T {
@@ -1447,46 +1539,50 @@ public final class FreeformWriter: @unchecked Sendable {
             }
             return uuid
         }
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let beforeItems = try store.withSnapshot(location) { snapshot -> [FreeformItemSnapshot] in
-            guard let board = try snapshot.boards(includeDeleted: false).first(where: { $0.id == boardUUID.uuidString })
-            else { return [] }
-            return snapshot.items(board: board)
-        }
-        let targetSet = Set(uuids.map(\.uuidString))
-        let boundConnectorIDs = Set(
-            beforeItems.filter {
-                $0.kind == .connector && !targetSet.contains($0.id)
-                    && (targetSet.contains($0.connectedFrom ?? "") || targetSet.contains($0.connectedTo ?? ""))
-            }.map(\.id))
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let beforeItems = try store.withSnapshot(location) { snapshot -> [FreeformItemSnapshot] in
+                guard
+                    let board = try snapshot.boards(includeDeleted: false).first(where: {
+                        $0.id == boardUUID.uuidString
+                    })
+                else { return [] }
+                return snapshot.items(board: board)
+            }
+            let targetSet = Set(uuids.map(\.uuidString))
+            let boundConnectorIDs = Set(
+                beforeItems.filter {
+                    $0.kind == .connector && !targetSet.contains($0.id)
+                        && (targetSet.contains($0.connectedFrom ?? "") || targetSet.contains($0.connectedTo ?? ""))
+                }.map(\.id))
 
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        try bridge.withStore(at: boardsDir) { nativeStore in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            var itemsToDelete: [AnyObject] = []
-            for uuid in uuids {
-                guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", uuid as NSUUID) else {
-                    throw AgentError.notFound("item", uuid.uuidString)
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            try bridge.withStore(at: boardsDir) { nativeStore in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                var itemsToDelete: [AnyObject] = []
+                for uuid in uuids {
+                    guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", uuid as NSUUID) else {
+                        throw AgentError.notFound("item", uuid.uuidString)
+                    }
+                    try requireUnlocked(item, id: uuid.uuidString, bridge: bridge)
+                    itemsToDelete.append(item)
                 }
-                try requireUnlocked(item, id: uuid.uuidString, bridge: bridge)
-                itemsToDelete.append(item)
+                let cc = bridge.makeCommandController(for: board)
+                bridge.withCommandGroup(on: cc) {
+                    bridge.enqueue(bridge.makeDeleteCommand(items: itemsToDelete), on: cc)
+                }
+                try bridge.saveBoard(board)
             }
-            let cc = bridge.makeCommandController(for: board)
-            bridge.withCommandGroup(on: cc) {
-                bridge.enqueue(bridge.makeDeleteCommand(items: itemsToDelete), on: cc)
+            let (readback, remaining) = try readbackBoard(boardUUID.uuidString, at: location)
+            let remainingSet = Set(remaining.map(\.id))
+            if let stillThere = uuids.first(where: { remainingSet.contains($0.uuidString) }) {
+                throw PlatformError.mutationUnverified(
+                    type: "item", id: stillThere.uuidString, reason: "Item is still present after delete.")
             }
-            try bridge.saveBoard(board)
+            let affected = remaining.filter { boundConnectorIDs.contains($0.id) }
+            return FreeformDeleteItemsResult(
+                board: readback, deletedIDs: uuids.map(\.uuidString), affectedConnectors: affected)
         }
-        let (readback, remaining) = try readbackBoard(boardUUID.uuidString, at: location)
-        let remainingSet = Set(remaining.map(\.id))
-        if let stillThere = uuids.first(where: { remainingSet.contains($0.uuidString) }) {
-            throw PlatformError.mutationUnverified(
-                type: "item", id: stillThere.uuidString, reason: "Item is still present after delete.")
-        }
-        let affected = remaining.filter { boundConnectorIDs.contains($0.id) }
-        return FreeformDeleteItemsResult(
-            board: readback, deletedIDs: uuids.map(\.uuidString), affectedConnectors: affected)
     }
 
     public func duplicateItems(
@@ -1499,49 +1595,50 @@ public final class FreeformWriter: @unchecked Sendable {
             guard let uuid = UUID(uuidString: id) else { throw AgentError.invalid("Invalid item id '\(id)'.") }
             return uuid
         }
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let newIDs = try bridge.withStore(at: boardsDir) { nativeStore -> [String] in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let root = bridge.getObject(board, "rootContainer")!
-            let factory = bridge.makeFactory(for: board)
-            let cc = bridge.makeCommandController(for: board)
-            let originals: [AnyObject] = try uuids.map { uuid in
-                guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", uuid as NSUUID) else {
-                    throw AgentError.notFound("item", uuid.uuidString)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let newIDs = try bridge.withStore(at: boardsDir) { nativeStore -> [String] in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let root = bridge.getObject(board, "rootContainer")!
+                let factory = bridge.makeFactory(for: board)
+                let cc = bridge.makeCommandController(for: board)
+                let originals: [AnyObject] = try uuids.map { uuid in
+                    guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", uuid as NSUUID) else {
+                        throw AgentError.notFound("item", uuid.uuidString)
+                    }
+                    return item
                 }
-                return item
-            }
-            let duplicates = bridge.duplicateBoardItems(factory: factory, items: originals)
-            guard !duplicates.isEmpty else {
-                throw PlatformError.saveFailed("Freeform did not create duplicate items.")
-            }
-            bridge.withCommandGroup(on: cc) {
-                bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: duplicates), on: cc)
-                if dx != 0 || dy != 0 {
-                    for dup in duplicates {
-                        if let rect = bridge.itemGeometryRect(dup) {
-                            let moved = bridge.makeGeometry(
-                                x: rect.x + dx, y: rect.y + dy, width: rect.width, height: rect.height,
-                                angle: rect.angle)
-                            bridge.enqueue(bridge.makeSetGeometryCommand(item: dup, geometry: moved), on: cc)
+                let duplicates = bridge.duplicateBoardItems(factory: factory, items: originals)
+                guard !duplicates.isEmpty else {
+                    throw PlatformError.saveFailed("Freeform did not create duplicate items.")
+                }
+                bridge.withCommandGroup(on: cc) {
+                    bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: duplicates), on: cc)
+                    if dx != 0 || dy != 0 {
+                        for dup in duplicates {
+                            if let rect = bridge.itemGeometryRect(dup) {
+                                let moved = bridge.makeGeometry(
+                                    x: rect.x + dx, y: rect.y + dy, width: rect.width, height: rect.height,
+                                    angle: rect.angle)
+                                bridge.enqueue(bridge.makeSetGeometryCommand(item: dup, geometry: moved), on: cc)
+                            }
                         }
                     }
                 }
+                try bridge.saveBoard(board)
+                return duplicates.compactMap { bridge.itemUUIDString($0) }
             }
-            try bridge.saveBoard(board)
-            return duplicates.compactMap { bridge.itemUUIDString($0) }
+            let (readback, allItems) = try readbackBoard(boardUUID.uuidString, at: location)
+            let byID = Dictionary(allItems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let created = newIDs.compactMap { byID[$0] }
+            guard created.count == newIDs.count else {
+                throw PlatformError.mutationUnverified(
+                    type: "item", id: newIDs.first ?? boardUUID.uuidString,
+                    reason: "Not all duplicated items appeared on readback.")
+            }
+            return FreeformItemsWriteResult(board: readback, items: created)
         }
-        let (readback, allItems) = try readbackBoard(boardUUID.uuidString, at: location)
-        let byID = Dictionary(allItems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let created = newIDs.compactMap { byID[$0] }
-        guard created.count == newIDs.count else {
-            throw PlatformError.mutationUnverified(
-                type: "item", id: newIDs.first ?? boardUUID.uuidString,
-                reason: "Not all duplicated items appeared on readback.")
-        }
-        return FreeformItemsWriteResult(board: readback, items: created)
     }
 
     public func groupItems(board selector: String, itemIDs: [String], ifRevision: String? = nil) throws
@@ -1554,38 +1651,39 @@ public final class FreeformWriter: @unchecked Sendable {
             guard let uuid = UUID(uuidString: id) else { throw AgentError.invalid("Invalid item id '\(id)'.") }
             return uuid
         }
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let groupID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let root = bridge.getObject(board, "rootContainer")!
-            let factory = bridge.makeFactory(for: board)
-            let cc = bridge.makeCommandController(for: board)
-            let targets: [AnyObject] = try uuids.map { uuid in
-                guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", uuid as NSUUID) else {
-                    throw AgentError.notFound("item", uuid.uuidString)
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let groupID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let root = bridge.getObject(board, "rootContainer")!
+                let factory = bridge.makeFactory(for: board)
+                let cc = bridge.makeCommandController(for: board)
+                let targets: [AnyObject] = try uuids.map { uuid in
+                    guard let item = bridge.getObjectArg(board, "getBoardItemForUUID:", uuid as NSUUID) else {
+                        throw AgentError.notFound("item", uuid.uuidString)
+                    }
+                    try requireUnlocked(item, id: uuid.uuidString, bridge: bridge)
+                    return item
                 }
-                try requireUnlocked(item, id: uuid.uuidString, bridge: bridge)
-                return item
+                let group = try bridge.makeGroup(factory: factory, items: targets)
+                guard let id = bridge.itemUUIDString(group) else {
+                    throw PlatformError.saveFailed("New group did not have an identifier.")
+                }
+                bridge.withCommandGroup(on: cc) {
+                    bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [group]), on: cc)
+                    bridge.enqueue(bridge.makeReparentCommand(destinationContainer: group, items: targets), on: cc)
+                }
+                try bridge.saveBoard(board)
+                return id
             }
-            let group = try bridge.makeGroup(factory: factory, items: targets)
-            guard let id = bridge.itemUUIDString(group) else {
-                throw PlatformError.saveFailed("New group did not have an identifier.")
+            let (readback, allItems) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard let groupItem = allItems.first(where: { $0.id == groupID }) else {
+                throw PlatformError.mutationUnverified(
+                    type: "group", id: groupID, reason: "New group did not appear on readback.")
             }
-            bridge.withCommandGroup(on: cc) {
-                bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [group]), on: cc)
-                bridge.enqueue(bridge.makeReparentCommand(destinationContainer: group, items: targets), on: cc)
-            }
-            try bridge.saveBoard(board)
-            return id
+            return FreeformItemWriteResult(board: readback, item: groupItem)
         }
-        let (readback, allItems) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard let groupItem = allItems.first(where: { $0.id == groupID }) else {
-            throw PlatformError.mutationUnverified(
-                type: "group", id: groupID, reason: "New group did not appear on readback.")
-        }
-        return FreeformItemWriteResult(board: readback, item: groupItem)
     }
 
     public func ungroupItem(board selector: String, groupID: String, ifRevision: String? = nil) throws
@@ -1594,44 +1692,45 @@ public final class FreeformWriter: @unchecked Sendable {
         guard let groupUUID = UUID(uuidString: groupID) else {
             throw AgentError.invalid("Invalid group id '\(groupID)'.")
         }
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        let childIDs = try bridge.withStore(at: boardsDir) { nativeStore -> [String] in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let root = bridge.getObject(board, "rootContainer")!
-            guard let group = bridge.getObjectArg(board, "getBoardItemForUUID:", groupUUID as NSUUID) else {
-                throw AgentError.notFound("group", groupID)
-            }
-            guard group.responds(to: NSSelectorFromString("ungroupedGeometryForChildItem:")) else {
-                throw AgentError.invalid("Item '\(groupID)' is not a group.")
-            }
-            try requireUnlocked(group, id: groupID, bridge: bridge)
-            let children = (bridge.getObject(group, "childItems") as? [AnyObject]) ?? []
-            let dest = bridge.getObject(group, "parentContainerItem") ?? root
-            let cc = bridge.makeCommandController(for: board)
-            let ungroupedGeoms: [(AnyObject, AnyObject)] = children.compactMap { child in
-                bridge.ungroupedGeometry(group: group, child: child).map { (child, $0) }
-            }
-            bridge.withCommandGroup(on: cc) {
-                if !children.isEmpty {
-                    bridge.enqueue(bridge.makeReparentCommand(destinationContainer: dest, items: children), on: cc)
-                    for (child, geom) in ungroupedGeoms {
-                        bridge.enqueue(bridge.makeSetGeometryCommand(item: child, geometry: geom), on: cc)
-                    }
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            let childIDs = try bridge.withStore(at: boardsDir) { nativeStore -> [String] in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let root = bridge.getObject(board, "rootContainer")!
+                guard let group = bridge.getObjectArg(board, "getBoardItemForUUID:", groupUUID as NSUUID) else {
+                    throw AgentError.notFound("group", groupID)
                 }
-                bridge.enqueue(bridge.makeDeleteCommand(items: [group]), on: cc)
+                guard group.responds(to: NSSelectorFromString("ungroupedGeometryForChildItem:")) else {
+                    throw AgentError.invalid("Item '\(groupID)' is not a group.")
+                }
+                try requireUnlocked(group, id: groupID, bridge: bridge)
+                let children = (bridge.getObject(group, "childItems") as? [AnyObject]) ?? []
+                let dest = bridge.getObject(group, "parentContainerItem") ?? root
+                let cc = bridge.makeCommandController(for: board)
+                let ungroupedGeoms: [(AnyObject, AnyObject)] = children.compactMap { child in
+                    bridge.ungroupedGeometry(group: group, child: child).map { (child, $0) }
+                }
+                bridge.withCommandGroup(on: cc) {
+                    if !children.isEmpty {
+                        bridge.enqueue(bridge.makeReparentCommand(destinationContainer: dest, items: children), on: cc)
+                        for (child, geom) in ungroupedGeoms {
+                            bridge.enqueue(bridge.makeSetGeometryCommand(item: child, geometry: geom), on: cc)
+                        }
+                    }
+                    bridge.enqueue(bridge.makeDeleteCommand(items: [group]), on: cc)
+                }
+                try bridge.saveBoard(board)
+                return children.compactMap { bridge.itemUUIDString($0) }
             }
-            try bridge.saveBoard(board)
-            return children.compactMap { bridge.itemUUIDString($0) }
+            let (readback, allItems) = try readbackBoard(boardUUID.uuidString, at: location)
+            guard !allItems.contains(where: { $0.id == groupUUID.uuidString }) else {
+                throw PlatformError.mutationUnverified(
+                    type: "group", id: groupUUID.uuidString, reason: "Group still exists after ungroup.")
+            }
+            let idSet = Set(childIDs)
+            return FreeformItemsWriteResult(board: readback, items: allItems.filter { idSet.contains($0.id) })
         }
-        let (readback, allItems) = try readbackBoard(boardUUID.uuidString, at: location)
-        guard !allItems.contains(where: { $0.id == groupUUID.uuidString }) else {
-            throw PlatformError.mutationUnverified(
-                type: "group", id: groupUUID.uuidString, reason: "Group still exists after ungroup.")
-        }
-        let idSet = Set(childIDs)
-        return FreeformItemsWriteResult(board: readback, items: allItems.filter { idSet.contains($0.id) })
     }
 
     public func alignItems(
@@ -1645,90 +1744,92 @@ public final class FreeformWriter: @unchecked Sendable {
             guard let uuid = UUID(uuidString: id) else { throw AgentError.invalid("Invalid item id '\(id)'.") }
             return uuid
         }
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
-        try bridge.withStore(at: boardsDir) { nativeStore in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let cc = bridge.makeCommandController(for: board)
-            struct Entry {
-                let id: String
-                let object: AnyObject
-                let x: Double
-                let y: Double
-                let width: Double
-                let height: Double
-                let angle: Double
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
+            try bridge.withStore(at: boardsDir) { nativeStore in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let cc = bridge.makeCommandController(for: board)
+                struct Entry {
+                    let id: String
+                    let object: AnyObject
+                    let x: Double
+                    let y: Double
+                    let width: Double
+                    let height: Double
+                    let angle: Double
+                }
+                let entries: [Entry] = try uuids.map { uuid in
+                    guard let obj = bridge.getObjectArg(board, "getBoardItemForUUID:", uuid as NSUUID) else {
+                        throw AgentError.notFound("item", uuid.uuidString)
+                    }
+                    try requireUnlocked(obj, id: uuid.uuidString, bridge: bridge)
+                    guard let r = bridge.itemGeometryRect(obj) else {
+                        throw AgentError.invalid("Item '\(uuid.uuidString)' has no canvas geometry.")
+                    }
+                    return Entry(
+                        id: uuid.uuidString, object: obj, x: r.x, y: r.y, width: r.width, height: r.height,
+                        angle: r.angle)
+                }
+                var updates: [(AnyObject, Double, Double, Double, Double, Double)] = []
+                switch mode {
+                case .left:
+                    let target = entries.map(\.x).min()!
+                    updates = entries.map { ($0.object, target, $0.y, $0.width, $0.height, $0.angle) }
+                case .right:
+                    let target = entries.map { $0.x + $0.width }.max()!
+                    updates = entries.map { ($0.object, target - $0.width, $0.y, $0.width, $0.height, $0.angle) }
+                case .center:
+                    let minX = entries.map(\.x).min()!
+                    let maxX = entries.map { $0.x + $0.width }.max()!
+                    let mid = (minX + maxX) / 2
+                    updates = entries.map { ($0.object, mid - $0.width / 2, $0.y, $0.width, $0.height, $0.angle) }
+                case .top:
+                    let target = entries.map(\.y).min()!
+                    updates = entries.map { ($0.object, $0.x, target, $0.width, $0.height, $0.angle) }
+                case .bottom:
+                    let target = entries.map { $0.y + $0.height }.max()!
+                    updates = entries.map { ($0.object, $0.x, target - $0.height, $0.width, $0.height, $0.angle) }
+                case .middle:
+                    let minY = entries.map(\.y).min()!
+                    let maxY = entries.map { $0.y + $0.height }.max()!
+                    let mid = (minY + maxY) / 2
+                    updates = entries.map { ($0.object, $0.x, mid - $0.height / 2, $0.width, $0.height, $0.angle) }
+                case .distributeHorizontal:
+                    let sorted = entries.sorted { $0.x < $1.x }
+                    let firstX = sorted.first!.x
+                    let lastRight = sorted.last!.x + sorted.last!.width
+                    let totalWidth = sorted.map(\.width).reduce(0, +)
+                    let gap = (lastRight - firstX - totalWidth) / Double(sorted.count - 1)
+                    var cursor = firstX
+                    for entry in sorted {
+                        updates.append((entry.object, cursor, entry.y, entry.width, entry.height, entry.angle))
+                        cursor += entry.width + gap
+                    }
+                case .distributeVertical:
+                    let sorted = entries.sorted { $0.y < $1.y }
+                    let firstY = sorted.first!.y
+                    let lastBottom = sorted.last!.y + sorted.last!.height
+                    let totalHeight = sorted.map(\.height).reduce(0, +)
+                    let gap = (lastBottom - firstY - totalHeight) / Double(sorted.count - 1)
+                    var cursor = firstY
+                    for entry in sorted {
+                        updates.append((entry.object, entry.x, cursor, entry.width, entry.height, entry.angle))
+                        cursor += entry.height + gap
+                    }
+                }
+                bridge.withCommandGroup(on: cc) {
+                    for (obj, x, y, w, h, a) in updates {
+                        let geom = bridge.makeGeometry(x: x, y: y, width: w, height: h, angle: a)
+                        bridge.enqueue(bridge.makeSetGeometryCommand(item: obj, geometry: geom), on: cc)
+                    }
+                }
+                try bridge.saveBoard(board)
             }
-            let entries: [Entry] = try uuids.map { uuid in
-                guard let obj = bridge.getObjectArg(board, "getBoardItemForUUID:", uuid as NSUUID) else {
-                    throw AgentError.notFound("item", uuid.uuidString)
-                }
-                try requireUnlocked(obj, id: uuid.uuidString, bridge: bridge)
-                guard let r = bridge.itemGeometryRect(obj) else {
-                    throw AgentError.invalid("Item '\(uuid.uuidString)' has no canvas geometry.")
-                }
-                return Entry(
-                    id: uuid.uuidString, object: obj, x: r.x, y: r.y, width: r.width, height: r.height, angle: r.angle)
-            }
-            var updates: [(AnyObject, Double, Double, Double, Double, Double)] = []
-            switch mode {
-            case .left:
-                let target = entries.map(\.x).min()!
-                updates = entries.map { ($0.object, target, $0.y, $0.width, $0.height, $0.angle) }
-            case .right:
-                let target = entries.map { $0.x + $0.width }.max()!
-                updates = entries.map { ($0.object, target - $0.width, $0.y, $0.width, $0.height, $0.angle) }
-            case .center:
-                let minX = entries.map(\.x).min()!
-                let maxX = entries.map { $0.x + $0.width }.max()!
-                let mid = (minX + maxX) / 2
-                updates = entries.map { ($0.object, mid - $0.width / 2, $0.y, $0.width, $0.height, $0.angle) }
-            case .top:
-                let target = entries.map(\.y).min()!
-                updates = entries.map { ($0.object, $0.x, target, $0.width, $0.height, $0.angle) }
-            case .bottom:
-                let target = entries.map { $0.y + $0.height }.max()!
-                updates = entries.map { ($0.object, $0.x, target - $0.height, $0.width, $0.height, $0.angle) }
-            case .middle:
-                let minY = entries.map(\.y).min()!
-                let maxY = entries.map { $0.y + $0.height }.max()!
-                let mid = (minY + maxY) / 2
-                updates = entries.map { ($0.object, $0.x, mid - $0.height / 2, $0.width, $0.height, $0.angle) }
-            case .distributeHorizontal:
-                let sorted = entries.sorted { $0.x < $1.x }
-                let firstX = sorted.first!.x
-                let lastRight = sorted.last!.x + sorted.last!.width
-                let totalWidth = sorted.map(\.width).reduce(0, +)
-                let gap = (lastRight - firstX - totalWidth) / Double(sorted.count - 1)
-                var cursor = firstX
-                for entry in sorted {
-                    updates.append((entry.object, cursor, entry.y, entry.width, entry.height, entry.angle))
-                    cursor += entry.width + gap
-                }
-            case .distributeVertical:
-                let sorted = entries.sorted { $0.y < $1.y }
-                let firstY = sorted.first!.y
-                let lastBottom = sorted.last!.y + sorted.last!.height
-                let totalHeight = sorted.map(\.height).reduce(0, +)
-                let gap = (lastBottom - firstY - totalHeight) / Double(sorted.count - 1)
-                var cursor = firstY
-                for entry in sorted {
-                    updates.append((entry.object, entry.x, cursor, entry.width, entry.height, entry.angle))
-                    cursor += entry.height + gap
-                }
-            }
-            bridge.withCommandGroup(on: cc) {
-                for (obj, x, y, w, h, a) in updates {
-                    let geom = bridge.makeGeometry(x: x, y: y, width: w, height: h, angle: a)
-                    bridge.enqueue(bridge.makeSetGeometryCommand(item: obj, geometry: geom), on: cc)
-                }
-            }
-            try bridge.saveBoard(board)
+            let (readback, allItems) = try readbackBoard(boardUUID.uuidString, at: location)
+            let idSet = Set(uuids.map(\.uuidString))
+            return FreeformItemsWriteResult(board: readback, items: allItems.filter { idSet.contains($0.id) })
         }
-        let (readback, allItems) = try readbackBoard(boardUUID.uuidString, at: location)
-        let idSet = Set(uuids.map(\.uuidString))
-        return FreeformItemsWriteResult(board: readback, items: allItems.filter { idSet.contains($0.id) })
     }
 
     // MARK: - Batch Diagram Authoring
@@ -1740,113 +1841,116 @@ public final class FreeformWriter: @unchecked Sendable {
             throw AgentError.invalid("Diagram spec must include at least one node.")
         }
         let validated = try Self.validateAndLayoutDiagram(spec)
-        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
-        let bridge = try bridgeFactory()
-        let boardsDir = location.database.deletingLastPathComponent()
+        return try withBoardWrite(selector, ifRevision: ifRevision) { location, _, boardUUID in
+            let bridge = try bridgeFactory()
+            let boardsDir = location.database.deletingLastPathComponent()
 
-        let (nodeIDs, edgeIDs) = try bridge.withStore(at: boardsDir) { nativeStore -> ([String: String], [String]) in
-            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
-            let root = bridge.getObject(board, "rootContainer")!
-            let rootID = bridge.getObject(root, "id")!
-            let factory = bridge.makeFactory(for: board)
-            let cc = bridge.makeCommandController(for: board)
+            let (nodeIDs, edgeIDs) = try bridge.withStore(at: boardsDir) {
+                nativeStore -> ([String: String], [String]) in
+                let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                let root = bridge.getObject(board, "rootContainer")!
+                let rootID = bridge.getObject(root, "id")!
+                let factory = bridge.makeFactory(for: board)
+                let cc = bridge.makeCommandController(for: board)
 
-            var nativeNodes: [String: AnyObject] = [:]
-            var keyToID: [String: String] = [:]
-            var createdEdgeIDs: [String] = []
+                var nativeNodes: [String: AnyObject] = [:]
+                var keyToID: [String: String] = [:]
+                var createdEdgeIDs: [String] = []
 
-            try bridge.withCommandGroup(on: cc) {
-                // 1. Insert all nodes cleanly with their exact geometry & styles.
-                for node in validated.nodes {
-                    let item: AnyObject
-                    switch node.kind {
-                    case .text:
-                        item = bridge.makeTextbox(
-                            factory: factory, position: CGPoint(x: node.x, y: node.y), text: node.text ?? "")
-                    case .sticky:
-                        item = bridge.makeSticky(
-                            factory: factory, attributedText: NSAttributedString(string: node.text ?? ""))
-                    case .shape(let shapeKind):
-                        item = bridge.makeShape(factory: factory, shapeType: shapeKind.nativeShapeType)
+                try bridge.withCommandGroup(on: cc) {
+                    // 1. Insert all nodes cleanly with their exact geometry & styles.
+                    for node in validated.nodes {
+                        let item: AnyObject
+                        switch node.kind {
+                        case .text:
+                            item = bridge.makeTextbox(
+                                factory: factory, position: CGPoint(x: node.x, y: node.y), text: node.text ?? "")
+                        case .sticky:
+                            item = bridge.makeSticky(
+                                factory: factory, attributedText: NSAttributedString(string: node.text ?? ""))
+                        case .shape(let shapeKind):
+                            item = bridge.makeShape(factory: factory, shapeType: shapeKind.nativeShapeType)
+                        }
+                        guard let id = bridge.itemUUIDString(item) else {
+                            throw PlatformError.saveFailed("New diagram node '\(node.key)' did not have an identifier.")
+                        }
+                        bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [item]), on: cc)
+                        let geom = bridge.makeGeometry(
+                            x: node.x, y: node.y, width: node.width, height: node.height, angle: node.angle)
+                        bridge.enqueue(bridge.makeSetGeometryCommand(item: item, geometry: geom), on: cc)
+                        if let fill = node.fill {
+                            bridge.enqueue(
+                                bridge.makeSetFillCommand(shapeItem: item, fill: bridge.makeColorFill(fill)), on: cc)
+                        }
+                        if let stroke = node.stroke {
+                            let nativeStroke = bridge.makeStroke(
+                                color: stroke, width: node.strokeWidth, pattern: node.strokePattern)
+                            bridge.enqueue(bridge.makeSetStrokeCommand(styledItem: item, stroke: nativeStroke), on: cc)
+                        }
+                        if case .shape = node.kind, let text = node.text, !text.isEmpty {
+                            bridge.enqueue(bridge.makeReplaceAllTextCommand(shapeItem: item, text: text), on: cc)
+                        }
+                        nativeNodes[node.key] = item
+                        keyToID[node.key] = id
                     }
-                    guard let id = bridge.itemUUIDString(item) else {
-                        throw PlatformError.saveFailed("New diagram node '\(node.key)' did not have an identifier.")
+
+                    // 2. Insert and bind all edges between nodes (or existing board items).
+                    func resolveEndpoint(_ ref: String) throws -> AnyObject {
+                        if let created = nativeNodes[ref] { return created }
+                        if let uuid = UUID(uuidString: ref),
+                            let existing = bridge.getObjectArg(board, "getBoardItemForUUID:", uuid as NSUUID)
+                        {
+                            return existing
+                        }
+                        throw AgentError.notFound("node or item", ref)
                     }
-                    bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [item]), on: cc)
-                    let geom = bridge.makeGeometry(
-                        x: node.x, y: node.y, width: node.width, height: node.height, angle: node.angle)
-                    bridge.enqueue(bridge.makeSetGeometryCommand(item: item, geometry: geom), on: cc)
-                    if let fill = node.fill {
+
+                    for edge in validated.edges {
+                        let fromItem = try resolveEndpoint(edge.from)
+                        let toItem = try resolveEndpoint(edge.to)
+                        let geom = connectorGeometry(from: fromItem, to: toItem, bridge: bridge)
+                        let stroke = bridge.makeStroke(
+                            color: edge.stroke, width: edge.strokeWidth, pattern: edge.strokePattern)
+                        let conn = bridge.makeConnectionLine(
+                            store: nativeStore, rootContainerID: rootID, geometry: geom, style: edge.style,
+                            stroke: stroke, headLineEnd: bridge.makeLineEnd(edge.headEnd),
+                            tailLineEnd: bridge.makeLineEnd(edge.tailEnd))
+                        guard let edgeID = bridge.itemUUIDString(conn) else {
+                            throw PlatformError.saveFailed("New diagram connector did not have an identifier.")
+                        }
+                        bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [conn]), on: cc)
                         bridge.enqueue(
-                            bridge.makeSetFillCommand(shapeItem: item, fill: bridge.makeColorFill(fill)), on: cc)
+                            bridge.makeSetConnectionCommand(connector: conn, targetItem: fromItem, chirality: 0), on: cc
+                        )
+                        bridge.enqueue(
+                            bridge.makeSetConnectionCommand(connector: conn, targetItem: toItem, chirality: 1), on: cc)
+                        createdEdgeIDs.append(edgeID)
                     }
-                    if let stroke = node.stroke {
-                        let nativeStroke = bridge.makeStroke(
-                            color: stroke, width: node.strokeWidth, pattern: node.strokePattern)
-                        bridge.enqueue(bridge.makeSetStrokeCommand(styledItem: item, stroke: nativeStroke), on: cc)
-                    }
-                    if case .shape = node.kind, let text = node.text, !text.isEmpty {
-                        bridge.enqueue(bridge.makeReplaceAllTextCommand(shapeItem: item, text: text), on: cc)
-                    }
-                    nativeNodes[node.key] = item
-                    keyToID[node.key] = id
                 }
+                try bridge.saveBoard(board)
+                return (keyToID, createdEdgeIDs)
+            }
 
-                // 2. Insert and bind all edges between nodes (or existing board items).
-                func resolveEndpoint(_ ref: String) throws -> AnyObject {
-                    if let created = nativeNodes[ref] { return created }
-                    if let uuid = UUID(uuidString: ref),
-                        let existing = bridge.getObjectArg(board, "getBoardItemForUUID:", uuid as NSUUID)
-                    {
-                        return existing
-                    }
-                    throw AgentError.notFound("node or item", ref)
+            let (readback, allItems) = try readbackBoard(boardUUID.uuidString, at: location)
+            let byID = Dictionary(allItems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            var resolvedNodes: [String: FreeformItemSnapshot] = [:]
+            for (key, id) in nodeIDs {
+                guard let snap = byID[id] else {
+                    throw PlatformError.mutationUnverified(
+                        type: "item", id: id, reason: "Diagram node '\(key)' did not appear on readback.")
                 }
-
-                for edge in validated.edges {
-                    let fromItem = try resolveEndpoint(edge.from)
-                    let toItem = try resolveEndpoint(edge.to)
-                    let geom = connectorGeometry(from: fromItem, to: toItem, bridge: bridge)
-                    let stroke = bridge.makeStroke(
-                        color: edge.stroke, width: edge.strokeWidth, pattern: edge.strokePattern)
-                    let conn = bridge.makeConnectionLine(
-                        store: nativeStore, rootContainerID: rootID, geometry: geom, style: edge.style,
-                        stroke: stroke, headLineEnd: bridge.makeLineEnd(edge.headEnd),
-                        tailLineEnd: bridge.makeLineEnd(edge.tailEnd))
-                    guard let edgeID = bridge.itemUUIDString(conn) else {
-                        throw PlatformError.saveFailed("New diagram connector did not have an identifier.")
-                    }
-                    bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [conn]), on: cc)
-                    bridge.enqueue(
-                        bridge.makeSetConnectionCommand(connector: conn, targetItem: fromItem, chirality: 0), on: cc)
-                    bridge.enqueue(
-                        bridge.makeSetConnectionCommand(connector: conn, targetItem: toItem, chirality: 1), on: cc)
-                    createdEdgeIDs.append(edgeID)
+                resolvedNodes[key] = snap
+            }
+            var resolvedEdges: [FreeformItemSnapshot] = []
+            for id in edgeIDs {
+                guard let snap = byID[id] else {
+                    throw PlatformError.mutationUnverified(
+                        type: "connector", id: id, reason: "Diagram connector did not appear on readback.")
                 }
+                resolvedEdges.append(snap)
             }
-            try bridge.saveBoard(board)
-            return (keyToID, createdEdgeIDs)
+            return FreeformDiagramResult(board: readback, nodes: resolvedNodes, edges: resolvedEdges)
         }
-
-        let (readback, allItems) = try readbackBoard(boardUUID.uuidString, at: location)
-        let byID = Dictionary(allItems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var resolvedNodes: [String: FreeformItemSnapshot] = [:]
-        for (key, id) in nodeIDs {
-            guard let snap = byID[id] else {
-                throw PlatformError.mutationUnverified(
-                    type: "item", id: id, reason: "Diagram node '\(key)' did not appear on readback.")
-            }
-            resolvedNodes[key] = snap
-        }
-        var resolvedEdges: [FreeformItemSnapshot] = []
-        for id in edgeIDs {
-            guard let snap = byID[id] else {
-                throw PlatformError.mutationUnverified(
-                    type: "connector", id: id, reason: "Diagram connector did not appear on readback.")
-            }
-            resolvedEdges.append(snap)
-        }
-        return FreeformDiagramResult(board: readback, nodes: resolvedNodes, edges: resolvedEdges)
     }
 
     // MARK: - Diagram Validation & Deterministic Auto-Layout

@@ -92,7 +92,7 @@ enum CreateBoard: AgentOperation {
         if contents.isEmpty, input.folder == nil, context.canAuthorNatively() {
             let result = try context.writer.createBoard(title: title)
             return CreateBoardOutput(
-                board: Board(result.board), items: [], pending: nil, sync: "pending_until_app_launch")
+                board: Board(result.board), items: [], pending: nil, sync: context.writer.lastWriteSync)
         }
         let (existing, folder) = try context.snapshot { snapshot -> (Set<String>, FreeformFolderSnapshot?) in
             let folder = try input.folder.map { selector in
@@ -156,7 +156,7 @@ enum RenameBoard: AgentOperation {
     static func run(_ input: Input, _ context: FreeformContext) throws -> BoardMutationOutput {
         let result = try context.writer.renameBoard(
             selector: input.board, title: input.title, ifRevision: input.ifRevision)
-        return BoardMutationOutput(board: Board(result.board), sync: "pending_until_app_launch")
+        return BoardMutationOutput(board: Board(result.board), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -178,7 +178,7 @@ enum FavoriteBoard: AgentOperation {
 
     static func run(_ input: Input, _ context: FreeformContext) throws -> BoardMutationOutput {
         let result = try context.writer.setBoardFavorite(selector: input.board, favorite: !input.off)
-        return BoardMutationOutput(board: Board(result.board), sync: "pending_until_app_launch")
+        return BoardMutationOutput(board: Board(result.board), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -199,7 +199,7 @@ enum DeleteBoard: AgentOperation {
 
     static func run(_ input: Input, _ context: FreeformContext) throws -> BoardMutationOutput {
         let result = try context.writer.deleteBoard(selector: input.board, ifRevision: input.ifRevision)
-        return BoardMutationOutput(board: Board(result.board), sync: "pending_until_app_launch")
+        return BoardMutationOutput(board: Board(result.board), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -219,7 +219,7 @@ enum RestoreBoard: AgentOperation {
 
     static func run(_ input: Input, _ context: FreeformContext) throws -> BoardMutationOutput {
         let result = try context.writer.restoreBoard(selector: input.board)
-        return BoardMutationOutput(board: Board(result.board), sync: "pending_until_app_launch")
+        return BoardMutationOutput(board: Board(result.board), sync: context.writer.lastWriteSync)
     }
 }
 

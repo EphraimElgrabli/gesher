@@ -32,26 +32,34 @@ final class FreeformNativeAuthoringTests: XCTestCase {
     }
 
     private func makeContext(
-        appRunning: Bool = false, hasVisibleWindows: Bool? = nil, terminateApp: @escaping () -> Bool = { true }
+        appRunning: Bool = false, hasVisibleWindows: Bool? = nil, isAppActive: Bool = false,
+        liveRefreshEnabled: Bool = false, terminateApp: @escaping () -> Bool = { true },
+        reopenApp: @escaping (String?, Bool) -> Void = { _, _ in }
     ) -> FreeformContext {
         let visible = hasVisibleWindows ?? appRunning
         let store = FreeformStore(home: tempHome)
         let writer = FreeformWriter(
-            store: store, isAppRunning: { appRunning }, hasVisibleWindows: { visible }, terminateApp: terminateApp)
+            store: store, isAppRunning: { appRunning }, hasVisibleWindows: { visible },
+            isAppActive: { isAppActive }, liveRefreshEnabled: { liveRefreshEnabled },
+            terminateApp: terminateApp, reopenApp: reopenApp)
         return FreeformContext(
             store: store,
             writer: writer,
-            authoringAvailable: { (!appRunning || !visible) && FreeformNativeBridge.status().isAvailable },
+            authoringAvailable: {
+                (!appRunning || !visible || liveRefreshEnabled) && FreeformNativeBridge.status().isAvailable
+            },
             launchApp: {},
             importTimeout: 1)
     }
 
     private func run(
-        _ args: [String], appRunning: Bool = false, hasVisibleWindows: Bool? = nil,
-        terminateApp: @escaping () -> Bool = { true }
+        _ args: [String], appRunning: Bool = false, hasVisibleWindows: Bool? = nil, isAppActive: Bool = false,
+        liveRefreshEnabled: Bool = false, terminateApp: @escaping () -> Bool = { true },
+        reopenApp: @escaping (String?, Bool) -> Void = { _, _ in }
     ) -> (Int32, JSONValue?, String) {
         let context = makeContext(
-            appRunning: appRunning, hasVisibleWindows: hasVisibleWindows, terminateApp: terminateApp)
+            appRunning: appRunning, hasVisibleWindows: hasVisibleWindows, isAppActive: isAppActive,
+            liveRefreshEnabled: liveRefreshEnabled, terminateApp: terminateApp, reopenApp: reopenApp)
         var out = ""
         let code = FreeformApp.make(context: { context }).run(args, stdout: { out = $0 }, stderr: { _ in })
         return (code, try? JSONDecoder().decode(JSONValue.self, from: Data(out.utf8)), out)
@@ -497,6 +505,92 @@ final class FreeformNativeAuthoringTests: XCTestCase {
         XCTAssertEqual(discovered.deleteBoard, bridge.offsets.deleteBoard)
         XCTAssertEqual(discovered.undeleteBoard, bridge.offsets.undeleteBoard)
         XCTAssertEqual(discovered.appendPendingChanges, bridge.offsets.appendPendingChanges)
+    }
+
+    /// Quick Refresh closes a visible Freeform window, applies the native write, and reopens directly
+    /// to the edited/created board without stealing focus (and recovers the window on mid-write errors).
+    func testQuickRefreshLifecycleFocusRecoveryAndConfig() throws {
+        // 1. Create a board while Freeform is visibly open (not frontmost) -> reopens to the new board ID.
+        var terminated = 0
+        var reopened: [(String?, Bool)] = []
+        let (cCode, cJSON, cOut) = run(
+            ["boards", "create", "QA-gesher-refresh"],
+            appRunning: true, hasVisibleWindows: true, isAppActive: false, liveRefreshEnabled: true,
+            terminateApp: {
+                terminated += 1; return true
+            },
+            reopenApp: { reopened.append(($0, $1)) })
+        XCTAssertEqual(cCode, 0, cOut)
+        let boardID = try XCTUnwrap(cJSON?["board"]?["id"]?.stringValue)
+        XCTAssertEqual(cJSON?["sync"], "live_refreshed")
+        XCTAssertEqual(terminated, 1)
+        XCTAssertEqual(reopened.count, 1)
+        XCTAssertEqual(reopened[0].0, boardID)
+        XCTAssertEqual(reopened[0].1, false)
+
+        // 2. Edit while Freeform is frontmost -> reopens with activate: true.
+        reopened.removeAll()
+        let (tCode, tJSON, tOut) = run(
+            ["items", "add-text", boardID, "--text", "Live update"],
+            appRunning: true, hasVisibleWindows: true, isAppActive: true, liveRefreshEnabled: true,
+            terminateApp: {
+                terminated += 1; return true
+            },
+            reopenApp: { reopened.append(($0, $1)) })
+        XCTAssertEqual(tCode, 0, tOut)
+        let itemID = try XCTUnwrap(tJSON?["item"]?["id"]?.stringValue)
+        XCTAssertEqual(tJSON?["sync"], "live_refreshed")
+        XCTAssertEqual(reopened.last?.0, boardID)
+        XCTAssertEqual(reopened.last?.1, true)
+
+        // 3. Precheck failure (wrong board or stale revision) must NOT close or flicker Freeform.
+        let termBefore = terminated
+        reopened.removeAll()
+        let (staleCode, staleJSON, _) = run(
+            ["items", "add-text", boardID, "--text", "Stale", "--if-revision", "wrong-rev"],
+            appRunning: true, hasVisibleWindows: true, liveRefreshEnabled: true,
+            terminateApp: {
+                terminated += 1; return true
+            },
+            reopenApp: { reopened.append(($0, $1)) })
+        XCTAssertEqual(staleCode, 1)
+        XCTAssertEqual(staleJSON?["error"]?["code"], "revision_mismatch")
+        XCTAssertEqual(terminated, termBefore)
+        XCTAssertTrue(reopened.isEmpty)
+
+        // 4. Mid-write error after closing Freeform (locked item) still reopens the window via defer.
+        _ = run(["items", "update", boardID, "--item", itemID, "--locked", "true"])
+        reopened.removeAll()
+        let (lockCode, lockJSON, _) = run(
+            ["items", "update", boardID, "--item", itemID, "--text", "Blocked"],
+            appRunning: true, hasVisibleWindows: true, liveRefreshEnabled: true,
+            terminateApp: {
+                terminated += 1; return true
+            },
+            reopenApp: { reopened.append(($0, $1)) })
+        XCTAssertEqual(lockCode, 1)
+        XCTAssertEqual(lockJSON?["error"]?["code"], "item_locked")
+        XCTAssertEqual(reopened.count, 1)
+        XCTAssertEqual(reopened[0].0, boardID)
+
+        // 5. Deleting a board reopens Freeform with nil boardID (board library, not the deleted board).
+        reopened.removeAll()
+        let (delCode, delJSON, delOut) = run(
+            ["boards", "delete", "QA-gesher-refresh"],
+            appRunning: true, hasVisibleWindows: true, liveRefreshEnabled: true,
+            terminateApp: {
+                terminated += 1; return true
+            },
+            reopenApp: { reopened.append(($0, $1)) })
+        XCTAssertEqual(delCode, 0, delOut)
+        XCTAssertEqual(delJSON?["sync"], "live_refreshed")
+        XCTAssertEqual(reopened.count, 1)
+        XCTAssertNil(reopened[0].0)
+
+        // 6. Environment & config resolution defaults to true and respects overrides.
+        XCTAssertTrue(FreeformImporter.liveRefreshEnabled(environment: [:]))
+        XCTAssertFalse(FreeformImporter.liveRefreshEnabled(environment: ["GESHER_FREEFORM_LIVE_REFRESH": "0"]))
+        XCTAssertTrue(FreeformImporter.liveRefreshEnabled(environment: ["GESHER_FREEFORM_LIVE_REFRESH": "1"]))
     }
 }
 

@@ -54,9 +54,13 @@ freeform-cli items add 'Trip ideas' --url https://www.apple.com --file ~/Picture
     exact Mach-O `LC_UUID` of the verified Freeform build plus ObjC class, selector and ivar checks.
     An unrecognized Freeform build fails cleanly with `unsupported_private_api` while reads and the
     import inbox continue to work.
-  - **Concurrency & safety:** if Freeform is running idle in the background with no visible windows,
-    Gesher terminates it cleanly before writing; if Freeform has an open window, native writes refuse
-    to interrupt it (`app_running`). Writes also
+  - **Concurrency, Quick Refresh & safety:** if Freeform is closed or running idle in the background
+    with no visible windows, native writes run silently without opening a window. If Freeform has an
+    open window, **Quick Refresh** (enabled by default; disable with `GESHER_FREEFORM_LIVE_REFRESH=0`
+    or `{"freeform": {"liveRefresh": "off"}}` in `~/.config/gesher/config.json`) validates the board
+    on a read-only copy first, gracefully closes Freeform, writes natively, and immediately reopens
+    the edited board (`freeform://board?id=<UUID>`) without stealing focus (`sync: "live_refreshed"`).
+    Writes also
     refuse participant-shared boards (`read_only`), refuse locked items unless explicitly unlocking
     (`item_locked`), support optimistic concurrency via `--if-revision`, and verify every mutation
     by reading back from a fresh store snapshot. Changes sync to iCloud the next time Freeform opens

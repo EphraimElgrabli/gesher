@@ -68,7 +68,7 @@ enum AddTextItem: AgentOperation {
         let result = try context.writer.addText(board: input.board, spec: spec, ifRevision: input.ifRevision)
         return ItemMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            item: Item(result.item), sync: "pending_until_app_launch")
+            item: Item(result.item), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -133,7 +133,7 @@ enum AddShapeItem: AgentOperation {
         let result = try context.writer.addShape(board: input.board, spec: spec, ifRevision: input.ifRevision)
         return ItemMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            item: Item(result.item), sync: "pending_until_app_launch")
+            item: Item(result.item), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -203,7 +203,7 @@ enum AddStickyItem: AgentOperation {
         let result = try context.writer.addSticky(board: input.board, spec: spec, ifRevision: input.ifRevision)
         return ItemMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            item: Item(result.item), sync: "pending_until_app_launch")
+            item: Item(result.item), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -270,7 +270,7 @@ enum ConnectItems: AgentOperation {
         let result = try context.writer.connect(board: input.board, spec: spec, ifRevision: input.ifRevision)
         return ItemMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            item: Item(result.item), sync: "pending_until_app_launch")
+            item: Item(result.item), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -369,7 +369,7 @@ enum UpdateItem: AgentOperation {
             board: input.board, itemID: input.item, spec: spec, ifRevision: input.ifRevision)
         return ItemMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            item: Item(result.item), sync: "pending_until_app_launch")
+            item: Item(result.item), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -406,7 +406,7 @@ enum DeleteItems: AgentOperation {
             board: result.board.id, title: result.board.title, revision: result.board.revision,
             deleted: result.deletedIDs,
             affectedConnectors: result.affectedConnectors.isEmpty ? nil : result.affectedConnectors.map(Item.init),
-            sync: "pending_until_app_launch")
+            sync: context.writer.lastWriteSync)
     }
 }
 
@@ -446,7 +446,7 @@ enum DuplicateItems: AgentOperation {
             ifRevision: input.ifRevision)
         return ItemsMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            items: result.items.map(Item.init), sync: "pending_until_app_launch")
+            items: result.items.map(Item.init), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -494,7 +494,7 @@ enum AddTableItem: AgentOperation {
         let result = try context.writer.addTable(board: input.board, spec: spec, ifRevision: input.ifRevision)
         return ItemMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            item: Item(result.item), sync: "pending_until_app_launch")
+            item: Item(result.item), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -568,7 +568,7 @@ enum SetTableCell: AgentOperation {
             ifRevision: input.ifRevision)
         return TableOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            table: TableData(result.table), sync: "pending_until_app_launch")
+            table: TableData(result.table), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -603,7 +603,7 @@ enum GroupItems: AgentOperation {
             board: input.board, itemIDs: input.item, ifRevision: input.ifRevision)
         return ItemMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            item: Item(result.item), sync: "pending_until_app_launch")
+            item: Item(result.item), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -637,7 +637,7 @@ enum UngroupItems: AgentOperation {
             board: input.board, groupID: input.group, ifRevision: input.ifRevision)
         return ItemsMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            items: result.items.map(Item.init), sync: "pending_until_app_launch")
+            items: result.items.map(Item.init), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -680,6 +680,6 @@ enum AlignItems: AgentOperation {
             board: input.board, itemIDs: input.item, mode: mode, ifRevision: input.ifRevision)
         return ItemsMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            items: result.items.map(Item.init), sync: "pending_until_app_launch")
+            items: result.items.map(Item.init), sync: context.writer.lastWriteSync)
     }
 }
