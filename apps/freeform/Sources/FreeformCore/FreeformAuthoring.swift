@@ -300,6 +300,8 @@ public struct FreeformConnectorSpec: Sendable {
 
 public struct FreeformItemUpdateSpec: Sendable {
     public var text: String?
+    public var shape: FreeformShapeKind?
+    public var description: String?
     public var x: Double?
     public var y: Double?
     public var width: Double?
@@ -319,13 +321,16 @@ public struct FreeformItemUpdateSpec: Sendable {
     public var zOrder: FreeformZOrderTarget?
 
     public init(
-        text: String? = nil, x: Double? = nil, y: Double? = nil, width: Double? = nil, height: Double? = nil,
-        angle: Double? = nil, fill: FreeformColor? = nil, clearFill: Bool = false, stroke: FreeformColor? = nil,
-        strokeWidth: Double? = nil, strokePattern: FreeformStrokePatternKind? = nil, clearStroke: Bool = false,
+        text: String? = nil, shape: FreeformShapeKind? = nil, description: String? = nil, x: Double? = nil,
+        y: Double? = nil, width: Double? = nil, height: Double? = nil, angle: Double? = nil,
+        fill: FreeformColor? = nil, clearFill: Bool = false, stroke: FreeformColor? = nil, strokeWidth: Double? = nil,
+        strokePattern: FreeformStrokePatternKind? = nil, clearStroke: Bool = false,
         headEnd: FreeformLineEndKind? = nil, tailEnd: FreeformLineEndKind? = nil, locked: Bool? = nil,
         fromID: String? = nil, toID: String? = nil, zOrder: FreeformZOrderTarget? = nil
     ) {
         self.text = text
+        self.shape = shape
+        self.description = description
         self.x = x
         self.y = y
         self.width = width
@@ -346,10 +351,74 @@ public struct FreeformItemUpdateSpec: Sendable {
     }
 
     public var isEmpty: Bool {
-        text == nil && x == nil && y == nil && width == nil && height == nil && angle == nil && fill == nil
-            && !clearFill && stroke == nil && strokeWidth == nil && strokePattern == nil && !clearStroke
-            && headEnd == nil && tailEnd == nil && locked == nil && fromID == nil && toID == nil && zOrder == nil
+        text == nil && shape == nil && description == nil && x == nil && y == nil && width == nil && height == nil
+            && angle == nil && fill == nil && !clearFill && stroke == nil && strokeWidth == nil
+            && strokePattern == nil && !clearStroke && headEnd == nil && tailEnd == nil && locked == nil
+            && fromID == nil && toID == nil && zOrder == nil
     }
+}
+
+public enum FreeformExportFormat: String, Sendable, CaseIterable {
+    case pdf
+    case png
+
+    public static func parse(_ raw: String) throws -> FreeformExportFormat {
+        guard let fmt = FreeformExportFormat(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        else {
+            throw AgentError.invalid("Unknown export format '\(raw)'.", hint: "Use pdf or png.")
+        }
+        return fmt
+    }
+}
+
+public struct FreeformTableSpec: Sendable {
+    public var rows: Int
+    public var columns: Int
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+    public var rtl: Bool
+
+    public init(
+        rows: Int = 3, columns: Int = 3, x: Double = 100, y: Double = 100, width: Double = 420, height: Double = 220,
+        rtl: Bool = false
+    ) {
+        self.rows = rows
+        self.columns = columns
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.rtl = rtl
+    }
+}
+
+public struct FreeformSceneSnapshot: Sendable, Equatable {
+    public let id: String
+    public let name: String?
+    public let index: Int
+    public let x: Double
+    public let y: Double
+    public let width: Double
+    public let height: Double
+}
+
+public struct FreeformExportResult: Sendable {
+    public let board: FreeformBoardSnapshot
+    public let format: FreeformExportFormat
+    public let path: String
+    public let bytes: Int
+}
+
+public struct FreeformScenesResult: Sendable {
+    public let board: FreeformBoardSnapshot
+    public let scenes: [FreeformSceneSnapshot]
+}
+
+public struct FreeformSceneWriteResult: Sendable {
+    public let board: FreeformBoardSnapshot
+    public let scene: FreeformSceneSnapshot
 }
 
 /// Structured diagram specification for batch authoring.
@@ -845,6 +914,22 @@ public final class FreeformWriter: @unchecked Sendable {
                     }
                     bridge.enqueue(bridge.makeReplaceAllTextCommand(shapeItem: item, text: text), on: cc)
                 }
+                if let newShape = spec.shape {
+                    guard item.responds(to: NSSelectorFromString("allowsChangeShape")),
+                        bridge.getBool(item, "allowsChangeShape")
+                    else {
+                        throw AgentError.invalid("Item '\(itemID)' does not support replacing its shape.")
+                    }
+                    let factory = bridge.makeFactory(for: board)
+                    let template = bridge.makeShape(factory: factory, shapeType: newShape.nativeShapeType)
+                    guard let pathSource = bridge.getObject(template, "pathSource") else {
+                        throw PlatformError.saveFailed("Could not build path source for shape '\(newShape.rawValue)'.")
+                    }
+                    bridge.enqueue(bridge.makeSetPathSourceCommand(shapeItem: item, pathSource: pathSource), on: cc)
+                }
+                if let description = spec.description {
+                    bridge.enqueue(bridge.makeSetDescriptionCommand(item: item, description: description), on: cc)
+                }
                 if spec.clearFill {
                     guard item.responds(to: NSSelectorFromString("supportsFill")) else {
                         throw AgentError.invalid("Item '\(itemID)' does not support fill.")
@@ -936,6 +1021,213 @@ public final class FreeformWriter: @unchecked Sendable {
                 type: "item", id: targetUUID.uuidString, reason: "Updated item was missing on readback.")
         }
         return FreeformItemWriteResult(board: readback, item: updated)
+    }
+
+    // MARK: - Native Tables, Export & Scenes
+
+    public func addTable(board selector: String, spec: FreeformTableSpec, ifRevision: String? = nil) throws
+        -> FreeformItemWriteResult
+    {
+        guard (1...50).contains(spec.rows), (1...25).contains(spec.columns) else {
+            throw AgentError.invalid("Table dimensions must be between 1x1 and 50x25.")
+        }
+        try validateFinite(spec.x, name: "x")
+        try validateFinite(spec.y, name: "y")
+        try validateFinite(spec.width, name: "width", positive: true)
+        try validateFinite(spec.height, name: "height", positive: true)
+
+        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
+        let bridge = try bridgeFactory()
+        let boardsDir = location.database.deletingLastPathComponent()
+        let createdID = try bridge.withStore(at: boardsDir) { nativeStore -> String in
+            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+            let root = bridge.getObject(board, "rootContainer")!
+            let factory = bridge.makeFactory(for: board)
+            let cc = bridge.makeCommandController(for: board)
+            let geom = bridge.makeGeometry(x: spec.x, y: spec.y, width: spec.width, height: spec.height)
+            let table = bridge.makeTable(factory: factory, rows: spec.rows, columns: spec.columns, geometry: geom)
+            if spec.rtl {
+                bridge.sendVoidBool(table, "setIsRTL:", true)
+            }
+            guard let id = bridge.itemUUIDString(table) else {
+                throw PlatformError.saveFailed("New table did not have an identifier.")
+            }
+            bridge.withCommandGroup(on: cc) {
+                bridge.enqueue(bridge.makeInsertCommand(parentContainer: root, items: [table]), on: cc)
+            }
+            try bridge.saveBoard(board)
+            return id
+        }
+        let (readback, items) = try readbackBoard(boardUUID.uuidString, at: location)
+        guard let item = items.first(where: { $0.id == createdID }) else {
+            throw PlatformError.mutationUnverified(
+                type: "table", id: createdID, reason: "Table did not appear on readback.")
+        }
+        return FreeformItemWriteResult(board: readback, item: item)
+    }
+
+    /// Copies the store to a temporary directory and renders a board via Freeform's own `CRLCanvasImager`
+    /// (works read-only even while Freeform.app is running).
+    public func exportBoard(board selector: String, format: FreeformExportFormat, outputPath: String) throws
+        -> FreeformExportResult
+    {
+        let dest = URL(fileURLWithPath: (outputPath as NSString).expandingTildeInPath).standardizedFileURL
+        let location = try store.requireLocation()
+        let board = try store.withSnapshot(location) { snapshot in
+            try EntityResolver.resolve(
+                selector, in: try snapshot.boards(includeDeleted: true), type: "board", id: \.id,
+                name: { $0.title ?? "" }, detail: { $0.lastActivityAt.map { DateOutput.iso($0) } })
+        }
+        guard let boardUUID = UUID(uuidString: board.id) else {
+            throw AgentError.notFound("board", board.id)
+        }
+        let bridge = try bridgeFactory()
+        let data = try withReadOnlyStoreCopy(at: location) { copyDir in
+            try bridge.withStore(at: copyDir) { nativeStore in
+                let nativeBoard = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                return try bridge.renderBoard(nativeBoard, format: format)
+            }
+        }
+        try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: dest, options: .atomic)
+        return FreeformExportResult(board: board, format: format, path: dest.path, bytes: data.count)
+    }
+
+    /// Lists scenes on a board using a read-only copy of the store (works even while Freeform.app is running).
+    public func listScenes(board selector: String) throws -> FreeformScenesResult {
+        let location = try store.requireLocation()
+        let board = try store.withSnapshot(location) { snapshot in
+            try EntityResolver.resolve(
+                selector, in: try snapshot.boards(includeDeleted: true), type: "board", id: \.id,
+                name: { $0.title ?? "" }, detail: { $0.lastActivityAt.map { DateOutput.iso($0) } })
+        }
+        guard let boardUUID = UUID(uuidString: board.id) else {
+            throw AgentError.notFound("board", board.id)
+        }
+        let bridge = try bridgeFactory()
+        let scenes = try withReadOnlyStoreCopy(at: location) { copyDir in
+            try bridge.withStore(at: copyDir) { nativeStore in
+                let nativeBoard = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+                return bridge.listScenes(on: nativeBoard)
+            }
+        }
+        return FreeformScenesResult(board: board, scenes: scenes)
+    }
+
+    public func createScene(
+        board selector: String, name: String?, x: Double, y: Double, width: Double, height: Double,
+        ifRevision: String? = nil
+    ) throws -> FreeformSceneWriteResult {
+        try validateFinite(x, name: "x")
+        try validateFinite(y, name: "y")
+        try validateFinite(width, name: "width", positive: true)
+        try validateFinite(height, name: "height", positive: true)
+        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
+        let bridge = try bridgeFactory()
+        let boardsDir = location.database.deletingLastPathComponent()
+        let sceneUUID = UUID()
+        let scenes = try bridge.withStore(at: boardsDir) { nativeStore -> [FreeformSceneSnapshot] in
+            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+            let cc = bridge.makeCommandController(for: board)
+            try bridge.createScene(
+                on: board, id: sceneUUID, rect: CGRect(x: x, y: y, width: width, height: height), name: name)
+            bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
+            try bridge.saveBoard(board)
+            return bridge.listScenes(on: board)
+        }
+        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+        guard let created = scenes.first(where: { $0.id == sceneUUID.uuidString }) else {
+            throw PlatformError.mutationUnverified(
+                type: "scene", id: sceneUUID.uuidString, reason: "Scene did not appear after save.")
+        }
+        return FreeformSceneWriteResult(board: readback, scene: created)
+    }
+
+    public func updateScene(
+        board selector: String, sceneID: String, name: String?, x: Double?, y: Double?, width: Double?,
+        height: Double?, ifRevision: String? = nil
+    ) throws -> FreeformSceneWriteResult {
+        guard let sceneUUID = UUID(uuidString: sceneID) else {
+            throw AgentError.invalid("Invalid scene UUID '\(sceneID)'.")
+        }
+        guard name != nil || x != nil || y != nil || width != nil || height != nil else {
+            throw AgentError.invalid("Specify --name or geometry (--x/--y/--width/--height) to update a scene.")
+        }
+        if let x { try validateFinite(x, name: "x") }
+        if let y { try validateFinite(y, name: "y") }
+        if let width { try validateFinite(width, name: "width", positive: true) }
+        if let height { try validateFinite(height, name: "height", positive: true) }
+        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
+        let bridge = try bridgeFactory()
+        let boardsDir = location.database.deletingLastPathComponent()
+        let scenes = try bridge.withStore(at: boardsDir) { nativeStore -> [FreeformSceneSnapshot] in
+            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+            let existing = bridge.listScenes(on: board)
+            guard let current = existing.first(where: { $0.id == sceneUUID.uuidString }) else {
+                throw AgentError.notFound("scene", sceneID)
+            }
+            let cc = bridge.makeCommandController(for: board)
+            if let name {
+                _ = bridge.setSceneName(on: board, id: sceneUUID, name: name)
+            }
+            if x != nil || y != nil || width != nil || height != nil {
+                let rect = CGRect(
+                    x: x ?? current.x, y: y ?? current.y, width: width ?? current.width,
+                    height: height ?? current.height)
+                _ = bridge.setSceneRect(on: board, id: sceneUUID, rect: rect)
+            }
+            bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
+            try bridge.saveBoard(board)
+            return bridge.listScenes(on: board)
+        }
+        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+        guard let updated = scenes.first(where: { $0.id == sceneUUID.uuidString }) else {
+            throw PlatformError.mutationUnverified(
+                type: "scene", id: sceneUUID.uuidString, reason: "Updated scene was missing on readback.")
+        }
+        return FreeformSceneWriteResult(board: readback, scene: updated)
+    }
+
+    public func deleteScene(board selector: String, sceneID: String, ifRevision: String? = nil) throws
+        -> FreeformBoardWriteResult
+    {
+        guard let sceneUUID = UUID(uuidString: sceneID) else {
+            throw AgentError.invalid("Invalid scene UUID '\(sceneID)'.")
+        }
+        let (location, _, boardUUID) = try requireBoardForWrite(selector, ifRevision: ifRevision)
+        let bridge = try bridgeFactory()
+        let boardsDir = location.database.deletingLastPathComponent()
+        try bridge.withStore(at: boardsDir) { nativeStore in
+            let board = try bridge.loadBoard(in: nativeStore, id: boardUUID)
+            let existing = bridge.listScenes(on: board)
+            guard existing.contains(where: { $0.id == sceneUUID.uuidString }) else {
+                throw AgentError.notFound("scene", sceneID)
+            }
+            let cc = bridge.makeCommandController(for: board)
+            guard bridge.deleteScene(on: board, id: sceneUUID) else {
+                throw PlatformError.saveFailed("Freeform failed to delete scene \(sceneID).")
+            }
+            bridge.enqueue(bridge.makeDirtyBoardCommand(), on: cc)
+            try bridge.saveBoard(board)
+        }
+        let (readback, _) = try readbackBoard(boardUUID.uuidString, at: location)
+        return FreeformBoardWriteResult(board: readback)
+    }
+
+    private func withReadOnlyStoreCopy<T>(at location: FreeformStoreLocation, _ body: (URL) throws -> T) throws -> T {
+        let fm = FileManager.default
+        let copyDir = fm.temporaryDirectory.appendingPathComponent(
+            "gesher-freeform-ro-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: copyDir, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: copyDir) }
+        let srcDir = location.database.deletingLastPathComponent()
+        for name in ["boards.db", "boards.db-wal", "boards.db-shm", "side.db", "side.db-wal", "side.db-shm"] {
+            let src = srcDir.appendingPathComponent(name)
+            if fm.fileExists(atPath: src.path) {
+                try fm.copyItem(at: src, to: copyDir.appendingPathComponent(name))
+            }
+        }
+        return try body(copyDir)
     }
 
     public func deleteItems(board selector: String, itemIDs: [String], ifRevision: String? = nil) throws

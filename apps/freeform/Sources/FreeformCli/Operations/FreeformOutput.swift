@@ -57,6 +57,7 @@ struct Item: Encodable, Sendable {
     let from: String?
     let to: String?
     let locked: Bool?
+    let description: String?
 
     init(_ item: FreeformItemSnapshot) {
         func round(_ value: Double?) -> Double? { value.map { ($0 * 10).rounded() / 10 } }
@@ -77,6 +78,7 @@ struct Item: Encodable, Sendable {
         from = item.connectedFrom
         to = item.connectedTo
         locked = item.locked ? true : nil
+        description = item.accessibilityDescription
     }
 }
 
@@ -152,5 +154,75 @@ struct DiagramOutput: Encodable, Sendable {
     let revision: String?
     let nodes: [String: Item]
     let edges: [Item]
+    let sync: String
+}
+
+struct ExportOutput: Encodable, Sendable {
+    let board: String
+    let title: String?
+    let format: String
+    let path: String
+    let bytes: Int
+}
+
+struct Folder: Encodable, Sendable {
+    let id: String
+    let title: String?
+    let parent: String?
+    let deleted: Bool?
+
+    init(_ folder: FreeformFolderSnapshot) {
+        id = folder.id
+        title = folder.title
+        parent = folder.parentID
+        deleted = folder.deleted ? true : nil
+    }
+}
+
+struct FoldersOutput: Encodable, Sendable {
+    let folders: [Folder]
+}
+
+struct SceneOutput: Encodable, Sendable {
+    let id: String
+    let name: String?
+    let index: Int
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+
+    init(_ scene: FreeformSceneSnapshot) {
+        func r(_ v: Double) -> Double { (v * 10).rounded() / 10 }
+        id = scene.id
+        name = scene.name
+        index = scene.index
+        x = r(scene.x)
+        y = r(scene.y)
+        width = r(scene.width)
+        height = r(scene.height)
+    }
+}
+
+struct ScenesOutput: Encodable, Sendable {
+    let board: String
+    let title: String?
+    let revision: String?
+    let scenes: [SceneOutput]
+}
+
+struct SceneMutationOutput: Encodable, Sendable {
+    let board: String
+    let title: String?
+    let revision: String?
+    let scene: SceneOutput
+    let sync: String
+}
+
+struct DeleteSceneOutput: Encodable, Sendable {
+    let board: String
+    let title: String?
+    let revision: String?
+    let deletedScene: String
     let sync: String
 }

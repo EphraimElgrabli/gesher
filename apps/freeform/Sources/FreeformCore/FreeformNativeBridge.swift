@@ -105,6 +105,9 @@ public final class FreeformNativeBridge: @unchecked Sendable {
     let reparentCommandClass: AnyClass
     let replaceTextCommandClass: AnyClass
     let dirtyBoardCommandClass: AnyClass
+    let setPathSourceCommandClass: AnyClass
+    let setDescriptionCommandClass: AnyClass
+    let canvasImagerClass: AnyClass
     let geometryClass: AnyClass
     let colorFillClass: AnyClass
     let strokeClass: AnyClass
@@ -224,6 +227,9 @@ public final class FreeformNativeBridge: @unchecked Sendable {
         reparentCommandClass = try requireClass("Freeform.CRLCommandReparentBoardItems")
         replaceTextCommandClass = try requireClass("Freeform.CRLWPReplaceTextCommand")
         dirtyBoardCommandClass = try requireClass("Freeform.CRLCommandDirtyBoard")
+        setPathSourceCommandClass = try requireClass("Freeform.CRLCommandSetPathSource")
+        setDescriptionCommandClass = try requireClass("Freeform.CRLCommandSetAccessibilityDescription")
+        canvasImagerClass = try requireClass("CRLCanvasImager")
         geometryClass = try requireClass("CRLCanvasInfoGeometry")
         colorFillClass = try requireClass("CRLColorFill")
         strokeClass = try requireClass("CRLStroke")
@@ -244,6 +250,7 @@ public final class FreeformNativeBridge: @unchecked Sendable {
         try requireSelector(factoryClass, "makeTextboxItemWithPosition:string:")
         try requireSelector(factoryClass, "makeShapeItemWithShapeType:")
         try requireSelector(factoryClass, "makeStickyNoteItemWithAttributedString:")
+        try requireSelector(factoryClass, "makeTableItemWithRowCount:columnCount:geometry:")
         try requireSelector(factoryClass, "makeDuplicateOfBoardItems:")
         try requireSelector(factoryClass, "makeGroupItemWithGeometry:")
         try requireSelector(commandControllerClass, "initWithBoard:changeNotifier:selectionDispatcher:")
@@ -261,6 +268,12 @@ public final class FreeformNativeBridge: @unchecked Sendable {
         try requireSelector(reorderCommandClass, "initWithParentContainer:childrenToMove:targetIndices:")
         try requireSelector(reparentCommandClass, "initWithDestinationContainer:boardItems:")
         try requireSelector(replaceTextCommandClass, "initWithShapeItem:range:text:")
+        try requireSelector(setPathSourceCommandClass, "initWithShapeItem:pathSource:")
+        try requireSelector(setDescriptionCommandClass, "initWithBoardItem:accessibilityDescription:")
+        try requireSelector(canvasImagerClass, "initWithBoard:")
+        try requireSelector(canvasImagerClass, "setInfos:")
+        try requireSelector(canvasImagerClass, "pdfData")
+        try requireSelector(canvasImagerClass, "pngData")
         try requireSelector(geometryClass, "initWithPosition:size:angle:")
         try requireSelector(colorFillClass, "colorWithRed:green:blue:alpha:", classMethod: true)
         try requireSelector(strokeClass, "strokeWithColor:width:pattern:", classMethod: true)
@@ -332,6 +345,16 @@ public final class FreeformNativeBridge: @unchecked Sendable {
     func getDouble(_ receiver: AnyObject, _ selector: String) -> Double {
         typealias Fn = @convention(c) (AnyObject, Selector) -> Double
         return unsafeBitCast(msgSend, to: Fn.self)(receiver, NSSelectorFromString(selector))
+    }
+
+    func getCGRect(_ receiver: AnyObject, _ selector: String) -> CGRect {
+        typealias Fn = @convention(c) (AnyObject, Selector) -> CGRect
+        return unsafeBitCast(msgSend, to: Fn.self)(receiver, NSSelectorFromString(selector))
+    }
+
+    func sendVoidBool(_ receiver: AnyObject, _ selector: String, _ value: Bool) {
+        typealias Fn = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(msgSend, to: Fn.self)(receiver, NSSelectorFromString(selector), value)
     }
 
     private func fnPtr(_ offset: UInt) -> UnsafeMutableRawPointer {
@@ -763,6 +786,92 @@ public final class FreeformNativeBridge: @unchecked Sendable {
         return unsafeBitCast(msgSend, to: Fn.self)(
             factory, NSSelectorFromString("makeStickyNoteItemWithAttributedString:"),
             NSAttributedString(string: text))
+    }
+
+    func makeTable(factory: AnyObject, rows: Int, columns: Int, geometry: AnyObject) -> AnyObject {
+        typealias Fn = @convention(c) (AnyObject, Selector, Int, Int, AnyObject) -> AnyObject
+        return unsafeBitCast(msgSend, to: Fn.self)(
+            factory, NSSelectorFromString("makeTableItemWithRowCount:columnCount:geometry:"), rows, columns, geometry)
+    }
+
+    func makeSetPathSourceCommand(shapeItem: AnyObject, pathSource: AnyObject) -> AnyObject {
+        typealias Fn = @convention(c) (UnsafeMutableRawPointer, Selector, AnyObject, AnyObject) -> AnyObject
+        return unsafeBitCast(msgSend, to: Fn.self)(
+            allocRaw(setPathSourceCommandClass), NSSelectorFromString("initWithShapeItem:pathSource:"), shapeItem,
+            pathSource)
+    }
+
+    func makeSetDescriptionCommand(item: AnyObject, description: String) -> AnyObject {
+        typealias Fn = @convention(c) (UnsafeMutableRawPointer, Selector, AnyObject, AnyObject) -> AnyObject
+        return unsafeBitCast(msgSend, to: Fn.self)(
+            allocRaw(setDescriptionCommandClass),
+            NSSelectorFromString("initWithBoardItem:accessibilityDescription:"), item, description as NSString)
+    }
+
+    func renderBoard(_ board: AnyObject, format: FreeformExportFormat) throws -> Data {
+        typealias InitFn = @convention(c) (UnsafeMutableRawPointer, Selector, AnyObject) -> AnyObject
+        let imager = unsafeBitCast(msgSend, to: InitFn.self)(
+            allocRaw(canvasImagerClass), NSSelectorFromString("initWithBoard:"), board)
+        let root = getObject(board, "rootContainer")
+        let items = (root.flatMap { getObject($0, "childItems") } as? [AnyObject]) ?? []
+        sendVoidId(imager, "setInfos:", items as NSArray)
+        let selector = format == .pdf ? "pdfData" : "pngData"
+        guard let data = getObject(imager, selector) as? Data, !data.isEmpty else {
+            throw PlatformError.fetchFailed(
+                "Freeform's canvas renderer returned no \(format.rawValue.uppercased()) data (is the board empty?).")
+        }
+        return data
+    }
+
+    func listScenes(on board: AnyObject) -> [FreeformSceneSnapshot] {
+        let infos = (getObject(board, "sceneInfos") as? [AnyObject]) ?? []
+        return infos.enumerated().compactMap { index, info in
+            let rect = getCGRect(info, "savedUnscaledRect")
+            let uuid = Mirror(reflecting: info).children.compactMap { child -> UUID? in
+                if let u = child.value as? UUID { return u }
+                if let u = child.value as? NSUUID { return u as UUID }
+                return nil
+            }.first
+            guard let uuid else { return nil }
+            let name = getObjectArg(board, "getSceneName:", uuid as NSUUID) as? String
+            return FreeformSceneSnapshot(
+                id: uuid.uuidString, name: name?.isEmpty == true ? nil : name, index: index,
+                x: Double(rect.origin.x), y: Double(rect.origin.y),
+                width: Double(rect.size.width), height: Double(rect.size.height))
+        }
+    }
+
+    func createScene(on board: AnyObject, id: UUID, rect: CGRect, name: String?) throws {
+        typealias CreateFn = @convention(c) (AnyObject, Selector, AnyObject, CGRect) -> AnyObject?
+        guard
+            unsafeBitCast(msgSend, to: CreateFn.self)(
+                board, NSSelectorFromString("createSceneWithSceneID:savedRect:"), id as NSUUID, rect) != nil
+        else {
+            throw PlatformError.saveFailed("Freeform failed to create scene \(id.uuidString).")
+        }
+        if let name {
+            _ = setSceneName(on: board, id: id, name: name)
+        }
+    }
+
+    @discardableResult
+    func setSceneName(on board: AnyObject, id: UUID, name: String) -> Bool {
+        typealias Fn = @convention(c) (AnyObject, Selector, AnyObject, AnyObject) -> Bool
+        return unsafeBitCast(msgSend, to: Fn.self)(
+            board, NSSelectorFromString("setSceneName::"), id as NSUUID, name as NSString)
+    }
+
+    @discardableResult
+    func setSceneRect(on board: AnyObject, id: UUID, rect: CGRect) -> Bool {
+        typealias Fn = @convention(c) (AnyObject, Selector, AnyObject, CGRect) -> Bool
+        return unsafeBitCast(msgSend, to: Fn.self)(
+            board, NSSelectorFromString("setSceneSavedRect::"), id as NSUUID, rect)
+    }
+
+    @discardableResult
+    func deleteScene(on board: AnyObject, id: UUID) -> Bool {
+        typealias Fn = @convention(c) (AnyObject, Selector, AnyObject) -> Bool
+        return unsafeBitCast(msgSend, to: Fn.self)(board, NSSelectorFromString("deleteSceneWith:"), id as NSUUID)
     }
 
     func makeConnectionLine(

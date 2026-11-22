@@ -158,6 +158,34 @@ public struct FreeformItemSnapshot: Sendable, Equatable {
     public let connectedFrom: String?
     public let connectedTo: String?
     public let locked: Bool
+    public let accessibilityDescription: String?
+
+    public init(
+        id: String, kind: FreeformItemKind, type: String, parentID: String?, zIndex: Int?, x: Double?, y: Double?,
+        width: Double?, height: Double?, angle: Double?, text: String?, fill: FreeformColor?, stroke: FreeformColor?,
+        url: String?, fileName: String?, connectedFrom: String?, connectedTo: String?, locked: Bool,
+        accessibilityDescription: String? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.type = type
+        self.parentID = parentID
+        self.zIndex = zIndex
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.angle = angle
+        self.text = text
+        self.fill = fill
+        self.stroke = stroke
+        self.url = url
+        self.fileName = fileName
+        self.connectedFrom = connectedFrom
+        self.connectedTo = connectedTo
+        self.locked = locked
+        self.accessibilityDescription = accessibilityDescription
+    }
 }
 
 /// Read-only access to Freeform's boards. The live store is never opened: each read copies the
@@ -353,8 +381,10 @@ public final class FreeformSnapshot {
         guard let boardID = UUID(uuidString: board.id) else {
             return FreeformItemsReport(items: [], unsupportedCount: 0, partialDecodeCount: 0)
         }
+        let hasSubType = db.columns("board_items").contains("sub_item_type")
+        let subTypeColumn = hasSubType ? "sub_item_type" : "NULL"
         let rows = db.rows(
-            "SELECT item_uuid, parent_uuid, item_type, common_data, specific_data FROM board_items WHERE board_identifier = ? AND tombstoned = 0",
+            "SELECT item_uuid, parent_uuid, item_type, common_data, specific_data, \(subTypeColumn) FROM board_items WHERE board_identifier = ? AND tombstoned = 0",
             blob: SQLiteSnapshot.blob(boardID))
         struct Row {
             let id: String
@@ -365,7 +395,18 @@ public final class FreeformSnapshot {
         }
         let decoded: [Row] = rows.compactMap { row in
             guard let id = row[0] as? Data else { return nil }
-            let kind = (row[2] as? Int64).flatMap { FreeformItemKind(rawValue: Int($0)) }
+            let rawType = (row[2] as? Int64).map(Int.init)
+            let subType = (row[5] as? Int64).map(Int.init) ?? 0
+            let kind: FreeformItemKind?
+            if rawType == FreeformItemKind.group.rawValue
+                && (subType == 1 || subType == FreeformItemKind.table.rawValue)
+            {
+                kind = .table
+            } else if rawType == FreeformItemKind.group.rawValue && subType != 0 {
+                kind = FreeformItemKind(rawValue: subType) ?? .group
+            } else {
+                kind = rawType.flatMap(FreeformItemKind.init(rawValue:))
+            }
             return Row(
                 id: SQLiteSnapshot.identifier(id), parent: (row[1] as? Data).map(SQLiteSnapshot.identifier), kind: kind,
                 common: kind.flatMap { kind in (row[3] as? Data).flatMap { decoder.decode(.itemCommon(kind), $0) } },
@@ -435,7 +476,8 @@ public final class FreeformSnapshot {
             angle: geometry?["angle"]?.double, text: text?.isEmpty == true ? nil : text, fill: fill, stroke: stroke,
             url: specific?["atomicData.url"]?.url?.absoluteString, fileName: fileName,
             connectedFrom: specific?["connectedFrom"]?.uuid?.uuidString,
-            connectedTo: specific?["connectedTo"]?.uuid?.uuidString, locked: common?["locked"]?.bool ?? false)
+            connectedTo: specific?["connectedTo"]?.uuid?.uuidString, locked: common?["locked"]?.bool ?? false,
+            accessibilityDescription: common?["accessibilityDescription"]?.string.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     /// `TSUColorData`: an RGB, monochrome or CMYK model plus an optional alpha.

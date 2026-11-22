@@ -13,13 +13,20 @@ freeform-cli boards rename 'Architecture' --title 'System Architecture'
 freeform-cli boards favorite 'System Architecture' [--off]
 freeform-cli boards delete 'Draft'                          # moves to Recently Deleted
 freeform-cli boards restore 'Draft'                         # restores from Recently Deleted
+freeform-cli boards export 'System Architecture' --output ~/Desktop/arch.pdf --kind pdf
+freeform-cli folders list [--include-deleted]
+freeform-cli scenes list 'System Architecture'
+freeform-cli scenes create 'System Architecture' --name 'Overview' --x 0 --y 0 --width 1200 --height 800
+freeform-cli scenes update 'System Architecture' --scene <id> --name 'Backend'
+freeform-cli scenes delete 'System Architecture' --scene <id>
 freeform-cli items list 'System Architecture' [--type shape] [--limit 50] [--offset 0]
 freeform-cli search 'gateway' [--type shape] [--include-deleted]
 freeform-cli items add-text 'System Architecture' --text 'Overview' --x 100 --y 60 --width 260
 freeform-cli items add-shape 'System Architecture' --shape rounded_rectangle --text 'API' --x 100 --y 180 --fill '#3B82F6'
 freeform-cli items add-sticky 'System Architecture' --text 'Note' --x 420 --y 180 --fill yellow
+freeform-cli items add-table 'System Architecture' --rows 3 --columns 4 --x 100 --y 360 [--rtl]
 freeform-cli items connect 'System Architecture' --from <id1> --to <id2> --style orthogonal
-freeform-cli items update 'System Architecture' --item <id1> --x 140 --y 200 --fill green --text 'API Gateway'
+freeform-cli items update 'System Architecture' --item <id1> --x 140 --y 200 --fill green --text 'API Gateway' --shape star --description 'Core API'
 freeform-cli items delete 'System Architecture' --item <id1>
 freeform-cli items duplicate 'System Architecture' --item <id1> --dx 260 --dy 0
 freeform-cli items group 'System Architecture' --item <id1> --item <id2>
@@ -53,5 +60,5 @@ freeform-cli items add 'Trip ideas' --url https://www.apple.com --file ~/Picture
   Hidden files, `~/Library` (iCloud Drive excepted), system files and key/credential files are refused;
   files for a board you share need `--confirm-shared`.
 - **Out of scope / blocked:** participant writes to boards shared with you, collaboration invites
-  and live collaborator presence, table cell editing, freehand drawing authoring, PDF export,
+  and live collaborator presence, table cell text editing, freehand drawing authoring,
   folder write operations, and live iCloud push while Freeform is closed.

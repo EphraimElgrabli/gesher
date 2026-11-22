@@ -16,6 +16,11 @@ commands with `~/.local/bin/freeform-cli <command> --help`.
 - Boards are selected by title or id. On `ambiguous`, retry with a candidate id.
 - `boards_get` returns one board, its `revision`, `coordinateSystem`, item counts per type, and
   any `unsupportedItems` or `partiallyDecodedItems` counts.
+- `folders_list` returns Freeform folders (`id`, `title`, `parent`, `deleted`).
+- `boards_export` exports any board to vector PDF or PNG (`--kind pdf|png`) through Freeform's
+  native renderer (read-only, works even while Freeform is open).
+- `scenes_list`, `scenes_create`, `scenes_update`, `scenes_delete` manage presentation scenes
+  (named canvas rectangles) on a board.
 - `items_list` returns paginated items (`limit`, `offset`, `total`, `more`, `revision`): `id`,
   `type` (text, shape, sticky, connector, image, file, link, table, drawing, movie, group), `text`,
   `x`/`y`/`width`/`height` (points, x right, y down), `angle`, `fill`/`stroke` (`#RRGGBB`),
@@ -31,11 +36,11 @@ commands with `~/.local/bin/freeform-cli <command> --help`.
   auto-layout (`direction`: `top-down` or `left-right`). Every node and connector remains
   independently editable in Freeform.
 - For individual edits and additions:
-  - `items_add_text`, `items_add_shape`, `items_add_sticky` place items at exact coordinates.
+  - `items_add_text`, `items_add_shape`, `items_add_sticky`, `items_add_table` place items at exact coordinates.
   - `items_connect` creates a native connector bound to two item ids (moves with connected nodes).
   - `items_update` edits `text`, `x`/`y`/`width`/`height`/`angle`, `fill`, `stroke`,
-    `strokeWidth`, `strokePattern`, `headEnd`/`tailEnd`, `from`/`to`, `z` (`front`/`back`/index),
-    or `locked`. Locked items refuse edits until unlocked (`locked: false`).
+    `strokeWidth`, `strokePattern`, `headEnd`/`tailEnd`, `from`/`to`, `shape` (replace shape),
+    `description` (alt text), `z` (`front`/`back`/index), or `locked`. Locked items refuse edits until unlocked (`locked: false`).
   - `items_duplicate`, `items_group`, `items_ungroup`, `items_align` (`left`, `center`, `right`,
     `top`, `middle`, `bottom`, `distribute_h`, `distribute_v`).
   - `items_delete` removes specific item ids without modifying unrelated objects and reports any

@@ -21,8 +21,8 @@ Every Gesher tool, and whether a third-party app could do the same job through a
 | Notes | 31 | 0 | 0 | 31 |
 | Maps | 6 | 5 | 1 | 0 |
 | Weather | 10 | 5 | 1 | 4 |
-| Freeform | 21 | 0 | 0 | 21 |
-| **Total** | **134** | **44** | **11** | **79** |
+| Freeform | 28 | 0 | 0 | 28 |
+| **Total** | **141** | **44** | **11** | **86** |
 
 ## Every tool
 
@@ -150,10 +150,17 @@ Every Gesher tool, and whether a third-party app could do the same job through a
 | Freeform | `freeform-cli boards favorite` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/BoardOperations.swift` |
 | Freeform | `freeform-cli boards delete` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/BoardOperations.swift` |
 | Freeform | `freeform-cli boards restore` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/BoardOperations.swift` |
+| Freeform | `freeform-cli boards export` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/BoardExtendedOperations.swift` |
+| Freeform | `freeform-cli folders list` | mixed | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/BoardExtendedOperations.swift` |
+| Freeform | `freeform-cli scenes list` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/BoardExtendedOperations.swift` |
+| Freeform | `freeform-cli scenes create` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/BoardExtendedOperations.swift` |
+| Freeform | `freeform-cli scenes update` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/BoardExtendedOperations.swift` |
+| Freeform | `freeform-cli scenes delete` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/BoardExtendedOperations.swift` |
 | Freeform | `freeform-cli items add` | mixed | no | no framework and no scripting dictionary (sdef on Freeform.app returns nothing) |  | `apps/freeform/Sources/FreeformCli/Operations/ItemOperations.swift` |
 | Freeform | `freeform-cli items add-text` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/AuthoringOperations.swift` |
 | Freeform | `freeform-cli items add-shape` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/AuthoringOperations.swift` |
 | Freeform | `freeform-cli items add-sticky` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/AuthoringOperations.swift` |
+| Freeform | `freeform-cli items add-table` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/AuthoringOperations.swift` |
 | Freeform | `freeform-cli items connect` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/AuthoringOperations.swift` |
 | Freeform | `freeform-cli items update` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/AuthoringOperations.swift` |
 | Freeform | `freeform-cli items delete` | private | no | no framework and no scripting dictionary |  | `apps/freeform/Sources/FreeformCli/Operations/AuthoringOperations.swift` |
