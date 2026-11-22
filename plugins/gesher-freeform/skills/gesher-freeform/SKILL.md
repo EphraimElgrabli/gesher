@@ -51,7 +51,7 @@ commands with `~/.local/bin/freeform-cli <command> --help`.
 - Board lifecycle: `boards_create`, `boards_rename`, `boards_favorite` (`off: true` to unfavorite),
   `boards_appearance` (`dotGrid`, `connectorMode`), `boards_delete` (exact title or id, moves to Recently Deleted), `boards_restore`, `boards_sync` (launches Freeform hidden so pending edits sync to iCloud).
 - Pass `ifRevision` from `boards_get` or `items_list` to detect concurrent edits (`revision_mismatch`).
-- If Freeform is idle in the background with no visible windows, Gesher closes it quietly before writing; if Freeform has an open window, native writes return `app_running` rather than interrupting the user. Call `boards_sync` after a batch of writes to sync quietly to iCloud.
+- **Quick Refresh (on by default):** when Freeform is open with a visible window, native writes automatically close Freeform cleanly, apply the edit, and reopen the edited board directly (`freeform://board?id=<UUID>`) without stealing focus (`sync: "live_refreshed"`). Prefer `diagram_create` for multi-node builds so the board refreshes once instead of per item. When Freeform is closed (or idle with no visible windows), writes stay silent and never pop a window; call `boards_sync` afterward if you want hidden iCloud sync.
 
 ## Import links, images and files
 

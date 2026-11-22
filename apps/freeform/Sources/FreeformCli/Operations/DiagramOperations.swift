@@ -36,6 +36,6 @@ enum CreateDiagram: AgentOperation {
         return DiagramOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
             nodes: result.nodes.mapValues(Item.init), edges: result.edges.map(Item.init),
-            sync: "pending_until_app_launch")
+            sync: context.writer.lastWriteSync)
     }
 }

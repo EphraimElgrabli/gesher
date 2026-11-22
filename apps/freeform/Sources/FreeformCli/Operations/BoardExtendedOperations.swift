@@ -112,7 +112,7 @@ enum CreateScene: AgentOperation {
             width: input.width ?? 1200, height: input.height ?? 800, ifRevision: input.ifRevision)
         return SceneMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            scene: SceneOutput(result.scene), sync: "pending_until_app_launch")
+            scene: SceneOutput(result.scene), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -161,7 +161,7 @@ enum UpdateScene: AgentOperation {
             width: input.width, height: input.height, ifRevision: input.ifRevision)
         return SceneMutationOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            scene: SceneOutput(result.scene), sync: "pending_until_app_launch")
+            scene: SceneOutput(result.scene), sync: context.writer.lastWriteSync)
     }
 }
 
@@ -195,7 +195,7 @@ enum DeleteScene: AgentOperation {
             board: input.board, sceneID: input.scene, ifRevision: input.ifRevision)
         return DeleteSceneOutput(
             board: result.board.id, title: result.board.title, revision: result.board.revision,
-            deletedScene: input.scene, sync: "pending_until_app_launch")
+            deletedScene: input.scene, sync: context.writer.lastWriteSync)
     }
 }
 
@@ -228,7 +228,7 @@ enum SetBoardAppearance: AgentOperation {
     static func run(_ input: Input, _ context: FreeformContext) throws -> BoardMutationOutput {
         let result = try context.writer.setBoardAppearance(
             selector: input.board, dotGrid: input.dotGrid, connectorMode: input.connectorMode)
-        return BoardMutationOutput(board: Board(result.board), sync: "pending_until_app_launch")
+        return BoardMutationOutput(board: Board(result.board), sync: context.writer.lastWriteSync)
     }
 }
 
