@@ -10,7 +10,7 @@
 
 <p align="center"><b>Let Claude, Codex or Cursor write to Apple Notes, Reminders, Calendar and Freeform: Notes tables and tags, Reminders sections and smart lists, and Freeform boards.</b></p>
 
-<p align="center">One install for seven apps, with Contacts, Weather and Maps too. The apps can stay closed. A native Swift CLI and MCP server per app, 134 tools.</p>
+<p align="center">One install for seven apps, with Contacts, Weather and Maps too. The apps can stay closed. A native Swift CLI and MCP server per app, 141 tools.</p>
 
 <p align="center">
   <a href="https://github.com/EphraimElgrabli/gesher/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/EphraimElgrabli/gesher?style=flat-square&label=release"></a>
@@ -59,7 +59,7 @@ With iCloud, the changes show up on your iPhone too.
 
 I built Gesher for my own work. I wanted to stay in Apple's apps instead of adding more apps and subscriptions, and to finally have the assistant I wanted Siri to be. The technical challenge interested me too.
 
-- **Features the public APIs don't have.** Gesher calls the frameworks Apple's apps are built on, including private frameworks Apple doesn't document for third-party use (a macOS update may break them). 79 of its 134 tools do something no public Apple framework offers, like Reminders sections and smart lists, Notes tags and tables, and editable Freeform diagrams. [Tool-by-tool comparison](docs/public-apis.md) · [How it works](docs/architecture.md)
+- **Features the public APIs don't have.** Gesher calls the frameworks Apple's apps are built on, including private frameworks Apple doesn't document for third-party use (a macOS update may break them). 86 of its 141 tools do something no public Apple framework offers, like Reminders sections and smart lists, Notes tags and tables, and editable Freeform diagrams. [Tool-by-tool comparison](docs/public-apis.md) · [How it works](docs/architecture.md)
 - **The apps can stay closed.** No AppleScript, no Shortcuts, no clicking through windows. Freeform opens quietly in the background only when importing media or files through its inbox.
 - **It checks its work.** Every write is read back. Bulk deletes are backed up first, deleted reminders and notes go to Recently Deleted, and Notes edits can be tied to the version the agent read.
 
@@ -73,7 +73,7 @@ I built Gesher for my own work. I wanted to stay in Apple's apps instead of addi
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/notes-dark.png"><img src="docs/assets/apps/notes-light.png" width="32" alt=""></picture> | **Notes** | read and write notes as Markdown, with checklists, tables and tags | [31](apps/notes/README.md) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/maps-dark.png"><img src="docs/assets/apps/maps-light.png" width="32" alt=""></picture> | **Maps** | search places, see opening hours, plan routes and travel times (read-only) | [6](apps/maps/README.md) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/weather-dark.png"><img src="docs/assets/apps/weather-light.png" width="32" alt=""></picture> | **Weather** | check the forecast hour by hour, air quality and severe-weather alerts; minute-by-minute rain in some countries | [10](apps/weather/README.md) |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/freeform-dark.png"><img src="docs/assets/apps/freeform-light.png" width="32" alt=""></picture> | **Freeform** | search and manage boards, author editable text, shapes, sticky notes, bound connectors and diagrams | [21](apps/freeform/README.md) |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/apps/freeform-dark.png"><img src="docs/assets/apps/freeform-light.png" width="32" alt=""></picture> | **Freeform** | search, manage and export boards (PDF/PNG), scenes, tables, editable text, shapes, stickies, bound connectors and diagrams | [28](apps/freeform/README.md) |
 
 Every app is also a command-line tool, for example `calendar-cli agenda tomorrow`. Each app's README lists its commands.
 
