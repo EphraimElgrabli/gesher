@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Apple Reminders, Calendar, Contacts, Notes, Maps, Weather and Freeform for AI agents on macOS (MCP servers + skills). Requires the Gesher CLIs: curl -fsSL https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/install.sh | bash",
-    "version": "1.3.0"
+    "version": "1.3.1"
   },
   "plugins": [
     {
       "name": "gesher-reminders",
       "source": "./plugins/gesher-reminders",
       "description": "Capture, review and organize Apple Reminders: smart views, search, lists, groups, sections, tags, subtasks, recurrence and alerts. Use when the user asks about reminders, to-dos or tasks.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "category": "productivity",
       "tags": [
         "apple",
@@ -27,7 +27,7 @@
       "name": "gesher-calendar",
       "source": "./plugins/gesher-calendar",
       "description": "Read the Apple Calendar agenda, find free time, and create, reschedule or delete events (repeating events, alerts, invitees) and calendars. Use for schedule questions, booking or moving meetings, availability and invitations.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "category": "productivity",
       "tags": [
         "apple",
@@ -41,7 +41,7 @@
       "name": "gesher-contacts",
       "source": "./plugins/gesher-contacts",
       "description": "Find, read and edit Apple Contacts: search by name, phone or email, update phones/emails/addresses/birthdays, manage groups, upcoming birthdays, duplicates and vCards. Use for any question about the user's contacts.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "category": "productivity",
       "tags": [
         "apple",
@@ -55,7 +55,7 @@
       "name": "gesher-notes",
       "source": "./plugins/gesher-notes",
       "description": "Capture, find, organize and edit Apple Notes: folders, Markdown notes, checklists, tags, tables and attachments. Use when the user wants work saved in or read from Apple Notes.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "category": "productivity",
       "tags": [
         "apple",
@@ -69,7 +69,7 @@
       "name": "gesher-maps",
       "source": "./plugins/gesher-maps",
       "description": "Find places, opening hours and travel times, and compare Apple Maps routes for driving, walking, transit or cycling.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "category": "productivity",
       "tags": [
         "apple",
@@ -83,7 +83,7 @@
       "name": "gesher-weather",
       "source": "./plugins/gesher-weather",
       "description": "Check current weather, hourly and daily forecasts, next-hour rain, severe-weather alerts, air quality, and manage saved Apple Weather locations. Use for weather questions or adding and removing Weather favorites.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "category": "productivity",
       "tags": [
         "apple",
@@ -97,7 +97,7 @@
       "name": "gesher-freeform",
       "source": "./plugins/gesher-freeform",
       "description": "Read, author and edit Apple Freeform boards: text boxes, shapes, sticky notes, bound connectors, diagrams and board lifecycle.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "category": "productivity",
       "tags": [
         "apple",

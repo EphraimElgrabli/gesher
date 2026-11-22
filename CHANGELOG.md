@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.1 — 2026-11-22
+
+- Cross-generational macOS compatibility: adds `OSGeneration`, `ABIResolutionMode`, ordered
+  multi-generation class/selector/symbol fallback helpers (`DynamicRuntime.resolveFirst*`) used
+  across Weather, Reminders and Freeform, plus `MachOAnchorScanner` for unique-match arm64
+  structural anchor verification and `osGeneration` reporting in `doctor`.
+- Freeform: adds populated table creation (`items_add_table --cells`), read-only table inspection
+  (`items_table_get`), in-place single-cell editing (`items_table_set_cell`), rich text styling
+  (`--font-size`, `--bold`, `--italic`, `--underline`, `--strikethrough`, `--text-color`,
+  `--align` with automatic Hebrew/Arabic RTL direction) on text boxes and sticky notes, persistent
+  board appearance controls (`boards_appearance --dot-grid --connector-mode`), quiet background
+  iCloud sync (`boards_sync`), hidden background launch, and automatic graceful closing of idle
+  background Freeform processes that have no visible windows. Freeform: 32 tools, 145 in all.
+
 ## 1.3.0 — 2026-11-22
 
 - Updater: GitHub Releases-based update checker with 6-hour local TTL cache and non-blocking

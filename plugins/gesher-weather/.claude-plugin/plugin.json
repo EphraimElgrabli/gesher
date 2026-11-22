@@ -1,7 +1,7 @@
 {
   "name": "gesher-weather",
   "description": "Check current weather, hourly and daily forecasts, next-hour rain, severe-weather alerts, air quality, and manage saved Apple Weather locations. Use for weather questions or adding and removing Weather favorites.",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "author": {
     "name": "Ephraim Elgrabli",
     "url": "https://github.com/EphraimElgrabli"
