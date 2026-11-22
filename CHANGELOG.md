@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0 — 2026-11-22
+
+- Updater: GitHub Releases-based update checker with 6-hour local TTL cache and non-blocking
+  background refresh. Adds `gesher update --check [--json]`, `gesher update --auto ask|always|never`,
+  `gesher update --skip <version|clear>`, interactive prompts on `gesher` runs, and `updateAvailable`
+  reporting in `doctor`.
+- Freeform: adds native PDF and PNG board export (`boards_export`, read-only via `CRLCanvasImager`),
+  full scenes CRUD (`scenes_list`, `scenes_create`, `scenes_update`, `scenes_delete`), native
+  table creation (`items_add_table` with `--rtl` and accurate table readback), `folders_list`,
+  shape replacement (`items_update --shape`) and item alt text (`items_update --description`).
+  Freeform: 28 tools, 141 in all.
+
 ## 1.2.0 — 2026-11-22
 
 - Freeform: native in-process board authoring and lifecycle through Freeform's own store and
