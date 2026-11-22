@@ -75,8 +75,25 @@ public final class AgentApp<Context>: @unchecked Sendable {
         // Privacy prompts and grants belong to this CLI, not to the terminal or agent that
         // launched it (unless that host already holds the grant). See docs/permissions.md.
         if ResponsibleProcess.shouldDisclaim(service: permission) { ResponsibleProcess.relaunchDisclaimed() }
-        let code = run(Array(CommandLine.arguments.dropFirst()))
+        let args = Array(CommandLine.arguments.dropFirst())
+        let checker = UpdateChecker()
+        checker.refreshInBackgroundIfStale()
+        let code = run(args)
+        notifyUpdateIfInteractive(args: args, checker: checker)
         exit(code)
+    }
+
+    /// Prints a concise notice on stderr in interactive terminal sessions (never touching stdout or MCP).
+    private func notifyUpdateIfInteractive(args: [String], checker: UpdateChecker) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["GESHER_FROM_LAUNCHER"] != "1", !checker.isDisabledByEnvironment else { return }
+        guard isatty(STDIN_FILENO) != 0, isatty(STDERR_FILENO) != 0 else { return }
+        let first = args.first ?? ""
+        guard !["mcp", "schema", "--version", "-h", "--help", "help"].contains(first) else { return }
+        let status = checker.cachedStatus(installed: Self.version)
+        guard status.shouldNotify, let latest = status.latest else { return }
+        let message = "Update available: Gesher \(Self.version) -> \(latest). Run 'gesher update' to upgrade.\n"
+        FileHandle.standardError.write(Data(message.utf8))
     }
 
     /// Runs one CLI invocation, writing to the given streams. Returns the exit code.

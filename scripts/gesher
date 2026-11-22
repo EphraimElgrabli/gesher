@@ -3,7 +3,11 @@
 # plus installation commands (connect, doctor, permissions, version, update, rollback, uninstall).
 set -euo pipefail
 
-installer_url="https://raw.githubusercontent.com/EphraimElgrabli/gesher/main/install.sh"
+repo="EphraimElgrabli/gesher"
+installer_url="${GESHER_INSTALLER_URL:-https://raw.githubusercontent.com/${repo}/main/install.sh}"
+releases_url="${GESHER_RELEASES_URL:-https://github.com/${repo}/releases/latest}"
+config_file="${GESHER_CONFIG:-${HOME}/.config/gesher/config.json}"
+cache_file="${GESHER_UPDATE_CACHE:-${HOME}/.cache/gesher/update-check.json}"
 apps=(reminders calendar contacts notes maps weather freeform)
 
 launcher="$0"
@@ -14,15 +18,25 @@ done
 release="$(cd -P -- "$(dirname -- "$launcher")" && pwd)"
 
 if [[ -t 1 ]]; then
-  bold=$'\033[1m' green=$'\033[32m' yellow=$'\033[33m' red=$'\033[31m' reset=$'\033[0m'
+  bold=$'\033[1m' green=$'\033[32m' yellow=$'\033[33m' red=$'\033[31m' cyan=$'\033[36m' dim=$'\033[2m' reset=$'\033[0m'
 else
-  bold="" green="" yellow="" red="" reset=""
+  bold="" green="" yellow="" red="" cyan="" dim="" reset=""
 fi
 
 installed_apps() {
   local app
   for app in "${apps[@]}"; do [[ -x "${release}/${app}-cli" ]] && printf '%s\n' "$app"; done
   return 0
+}
+
+installed_version() {
+  local app
+  for app in weather freeform reminders calendar contacts notes maps; do
+    if [[ -x "${release}/${app}-cli" ]]; then
+      "${release}/${app}-cli" --version 2>/dev/null && return 0
+    fi
+  done
+  return 1
 }
 
 # PREFIX of this install: the CLIs run from PREFIX/lib/gesher/active (or .../releases/<name>).
@@ -48,7 +62,7 @@ Commands:
   permissions   ask macOS for each app's privacy access, one app at a time
   plugins       install or refresh the Codex plugins only
   version       print the installed version
-  update        install the latest release
+  update        check for updates or install the latest release (--check, --auto, --skip)
   rollback      switch back to the previous release
   uninstall     remove Gesher (keeps ~/.config/gesher)
 
@@ -56,8 +70,365 @@ Every app:  <app>-cli --help | <app>-cli <command> --help | <app>-cli mcp (MCP s
 EOF
 }
 
+update_usage() {
+  cat <<'EOF'
+Usage: gesher update [options]
+
+Checks GitHub Releases for a newer Gesher version and updates in place, keeping
+your local signing identity, macOS permissions and AI app connections.
+
+Options:
+  --check              check GitHub for the latest version without installing
+  --json               output check result as JSON (with --check)
+  --yes, -y            install without prompting for confirmation
+  --force              reinstall even if already on the latest version
+  --version X.Y.Z      install a specific release version
+  --auto MODE          set automatic update behavior: ask (default), always, or never
+  --skip VERSION       skip update prompts for VERSION (or 'clear' to reset)
+  -h, --help           show this help
+
+Environment:
+  GESHER_NO_UPDATE_CHECK=1   disable background update checks
+EOF
+}
+
 # Pull "key":"value" (or "key":null) out of the compact JSON a CLI prints.
 json_field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" <<<"$2" | head -n 1; }
+
+# Fetch latest version from GitHub Releases redirect (no API rate limit).
+fetch_latest_version() {
+  command -v curl >/dev/null 2>&1 || return 1
+  local url tag
+  url="$(curl -fsSLI --max-time 4 --retry 1 -o /dev/null -w '%{url_effective}' "$releases_url" 2>/dev/null)" || return 1
+  [[ "$url" == */releases/tag/* ]] || return 1
+  tag="${url##*/releases/tag/}"
+  tag="${tag%%[?#]*}"
+  tag="${tag#v}"
+  tag="${tag#V}"
+  [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || return 1
+  printf '%s|%s\n' "$tag" "$url"
+}
+
+write_update_cache() {
+  local version="$1" url="$2"
+  /usr/bin/python3 - "$cache_file" "$version" "$url" <<'PY' 2>/dev/null || true
+import datetime, json, os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+data = {
+    "checkedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "latestVersion": sys.argv[2],
+    "releaseURL": sys.argv[3],
+}
+tmp = path.with_suffix(".tmp")
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    json.dump(data, f, indent=2, sort_keys=True)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+}
+
+set_update_config() {
+  local key="$1" value="$2"
+  /usr/bin/python3 - "$config_file" "$key" "$value" <<'PY'
+import json, os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+key, value = sys.argv[2], sys.argv[3]
+root = {}
+if path.exists():
+    try:
+        loaded = json.loads(path.read_text())
+        if isinstance(loaded, dict):
+            root = loaded
+    except Exception:
+        root = {}
+section = root.get("updates")
+if not isinstance(section, dict):
+    section = {}
+if value == "":
+    section.pop(key, None)
+else:
+    section[key] = value
+root["updates"] = section
+path.parent.mkdir(parents=True, exist_ok=True)
+tmp = path.with_suffix(".tmp")
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    json.dump(root, f, indent=2, sort_keys=True)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+}
+
+# Prints tab-separated: policy | skipped | latest | release_url | is_newer (0/1) | is_stale (0/1)
+inspect_update_state() {
+  local installed="$1"
+  /usr/bin/python3 - "$config_file" "$cache_file" "$installed" <<'PY' 2>/dev/null || printf 'ask||||0|1\n'
+import datetime, json, pathlib, re, sys
+
+cfg_path, cache_path, installed = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+
+def parse_ver(raw):
+    raw = (raw or "").strip().lstrip("vV").split("+", 1)[0]
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$", raw)
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4))
+
+def is_newer(latest, current):
+    a, b = parse_ver(latest), parse_ver(current)
+    if not a or not b:
+        return False
+    if a[:3] != b[:3]:
+        return a[:3] > b[:3]
+    if a[3] == b[3]:
+        return False
+    if a[3] is None:
+        return True
+    if b[3] is None:
+        return False
+    return a[3] > b[3]
+
+policy, skipped, hours = "ask", "", 6.0
+if cfg_path.exists():
+    try:
+        u = json.loads(cfg_path.read_text()).get("updates", {})
+        if isinstance(u, dict):
+            if u.get("mode") in ("ask", "always", "never"):
+                policy = u["mode"]
+            if isinstance(u.get("skippedVersion"), str):
+                skipped = u["skippedVersion"]
+            if u.get("checkIntervalHours") is not None:
+                val = float(u["checkIntervalHours"])
+                if val > 0:
+                    hours = val
+    except Exception:
+        pass
+
+latest, url, stale = "", "", 1
+if cache_path.exists():
+    try:
+        c = json.loads(cache_path.read_text())
+        latest = str(c.get("latestVersion") or "")
+        url = str(c.get("releaseURL") or "")
+        checked = c.get("checkedAt")
+        if checked:
+            dt = datetime.datetime.fromisoformat(str(checked).replace("Z", "+00:00"))
+            age = (datetime.datetime.now(datetime.timezone.utc) - dt).total_seconds()
+            if age < hours * 3600:
+                stale = 0
+    except Exception:
+        pass
+
+newer = 1 if is_newer(latest, installed) else 0
+print(f"{policy}|{skipped}|{latest}|{url}|{newer}|{stale}")
+PY
+}
+
+refresh_update_cache_async() {
+  (
+    fetched="$(fetch_latest_version)" || exit 0
+    ver="${fetched%%|*}"
+    url="${fetched#*|}"
+    [[ -n "$ver" ]] && write_update_cache "$ver" "$url"
+  ) </dev/null >/dev/null 2>&1 &
+}
+
+update_checks_disabled() {
+  case "${GESHER_NO_UPDATE_CHECK:-}" in 1 | true | TRUE | yes | YES) return 0 ;; esac
+  case "${CI:-}" in 1 | true | TRUE | yes | YES) return 0 ;; esac
+  return 1
+}
+
+perform_install_update() {
+  local prefix="$1"
+  shift
+  curl -fsSL "$installer_url" | bash -s -- --prefix "$prefix" --no-connect --no-modify-path "$@"
+}
+
+# Non-blocking background refresh + interactive prompt on TTY when a newer version is cached.
+maybe_check_and_prompt_update() {
+  local first="${1:-}" second="${2:-}"
+  update_checks_disabled && return 0
+  case "$first" in
+    "" | -h | --help | help | version | --version | update | rollback | uninstall) return 0 ;;
+  esac
+  # Never interfere with MCP stdio or JSON output commands.
+  [[ "$second" == mcp || "$second" == schema || "$second" == --json ]] && return 0
+  [[ -f "${release}/install.sh" ]] || return 0
+
+  local installed state policy skipped latest url newer stale
+  installed="$(installed_version)" || return 0
+  state="$(inspect_update_state "$installed")"
+  IFS='|' read -r policy skipped latest url newer stale <<<"$state"
+
+  [[ "$policy" == never ]] && return 0
+  [[ "$stale" == 1 ]] && refresh_update_cache_async
+
+  [[ "$newer" == 1 ]] || return 0
+  [[ -n "$skipped" && "$skipped" == "$latest" ]] && return 0
+
+  # Only prompt or auto-update in an interactive terminal session.
+  [[ -t 0 && -t 2 ]] || return 0
+  [[ -r /dev/tty ]] || return 0
+
+  local prefix
+  prefix="$(install_prefix update 2>/dev/null)" || return 0
+
+  if [[ "$policy" == always ]]; then
+    printf '%s==> Updating Gesher %s -> %s%s\n' "$cyan" "$installed" "$latest" "$reset" >&2
+    if perform_install_update "$prefix" --version "$latest" >&2; then
+      write_update_cache "$latest" "${url:-https://github.com/${repo}/releases/tag/v${latest}}"
+      export GESHER_NO_UPDATE_CHECK=1
+      exec "${prefix}/bin/gesher" "$@"
+    fi
+    return 0
+  fi
+
+  printf '%sUpdate available:%s Gesher %s -> %s%s%s (%s)\n' \
+    "$yellow" "$reset" "$installed" "$bold" "$latest" "$reset" \
+    "${url:-https://github.com/${repo}/releases/tag/v${latest}}" >&2
+  local reply=""
+  printf 'Update now? [y/N/s(kip)/never] ' >&2
+  IFS= read -r reply </dev/tty || reply=""
+  case "$reply" in
+    y | Y | yes | YES)
+      if perform_install_update "$prefix" --version "$latest" >&2; then
+        write_update_cache "$latest" "${url:-https://github.com/${repo}/releases/tag/v${latest}}"
+        export GESHER_NO_UPDATE_CHECK=1
+        exec "${prefix}/bin/gesher" "$@"
+      fi
+      ;;
+    s | S | skip | SKIP)
+      set_update_config skippedVersion "$latest"
+      printf 'Skipped update prompts for Gesher %s.\n' "$latest" >&2
+      ;;
+    never | NEVER | off | OFF)
+      set_update_config mode never
+      printf 'Automatic update prompts disabled (re-enable with: gesher update --auto ask).\n' >&2
+      ;;
+  esac
+}
+
+run_update_command() {
+  local check_only=0 as_json=0 assume_yes=0 force=0 target_version="" auto_mode="" skip_ver=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --check) check_only=1; shift ;;
+      --json) as_json=1; shift ;;
+      -y | --yes) assume_yes=1; shift ;;
+      --force) force=1; shift ;;
+      --version) target_version="${2:?--version needs a value, e.g. 1.2.0}"; target_version="${target_version#v}"; shift 2 ;;
+      --auto) auto_mode="${2:?--auto needs ask, always, or never}"; shift 2 ;;
+      --skip) skip_ver="${2:?--skip needs a version or 'clear'}"; shift 2 ;;
+      -h | --help) update_usage; return 0 ;;
+      *) printf 'Unknown option for gesher update: %s (see gesher update --help)\n' "$1" >&2; return 64 ;;
+    esac
+  done
+
+  if [[ -n "$auto_mode" ]]; then
+    case "$auto_mode" in
+      ask | always | never)
+        set_update_config mode "$auto_mode"
+        printf 'Gesher update mode set to: %s\n' "$auto_mode"
+        ;;
+      *)
+        printf "Invalid --auto mode '%s'. Use ask, always, or never.\n" "$auto_mode" >&2
+        return 64
+        ;;
+    esac
+    [[ "$check_only" == 0 && -z "$skip_ver" && -z "$target_version" && "$force" == 0 ]] && return 0
+  fi
+
+  if [[ -n "$skip_ver" ]]; then
+    if [[ "$skip_ver" == clear || "$skip_ver" == none ]]; then
+      set_update_config skippedVersion ""
+      printf 'Cleared skipped update version.\n'
+    else
+      skip_ver="${skip_ver#v}"
+      set_update_config skippedVersion "$skip_ver"
+      printf 'Skipped update prompts for Gesher %s.\n' "$skip_ver"
+    fi
+    [[ "$check_only" == 0 && -z "$target_version" && "$force" == 0 ]] && return 0
+  fi
+
+  local installed fetched latest="" url="" state policy skipped newer
+  installed="$(installed_version)" || installed="unknown"
+
+  if [[ -z "$target_version" ]]; then
+    if fetched="$(fetch_latest_version)"; then
+      latest="${fetched%%|*}"
+      url="${fetched#*|}"
+      write_update_cache "$latest" "$url"
+    else
+      printf 'Could not check GitHub for the latest Gesher release.\n' >&2
+      return 1
+    fi
+  fi
+
+  state="$(inspect_update_state "$installed")"
+  IFS='|' read -r policy skipped latest url newer _ <<<"$state"
+
+  if [[ "$check_only" == 1 ]]; then
+    if [[ "$as_json" == 1 ]]; then
+      /usr/bin/python3 - "$installed" "$latest" "$newer" "$policy" "$skipped" "$url" <<'PY'
+import json, sys
+installed, latest, newer, policy, skipped, url = sys.argv[1:7]
+out = {
+    "installed": installed,
+    "latest": latest or None,
+    "updateAvailable": newer == "1",
+    "policy": policy,
+    "releaseUrl": url or None,
+}
+if skipped:
+    out["skippedVersion"] = skipped
+print(json.dumps(out, separators=(",", ":")))
+PY
+    else
+      if [[ "$newer" == 1 ]]; then
+        printf 'Update available: Gesher %s -> %s (%s)\n' "$installed" "$latest" "$url"
+        printf 'Run: gesher update\n'
+      else
+        printf 'Gesher %s is up to date (latest: %s).\n' "$installed" "$latest"
+      fi
+    fi
+    return 0
+  fi
+
+  local prefix
+  prefix="$(install_prefix update)"
+
+  if [[ -n "$target_version" ]]; then
+    perform_install_update "$prefix" --version "$target_version"
+    return $?
+  fi
+
+  if [[ "$newer" != 1 && "$force" != 1 ]]; then
+    printf 'Gesher %s is already up to date.\n' "$installed"
+    return 0
+  fi
+
+  if [[ "$assume_yes" != 1 && -t 0 && -r /dev/tty ]]; then
+    printf 'Gesher %s -> %s (%s)\n' "$installed" "$latest" "$url"
+    local reply=""
+    printf 'Install this update? [Y/n] '
+    IFS= read -r reply </dev/tty || reply=""
+    case "$reply" in
+      "" | y | Y | yes | YES) ;;
+      *) printf 'Update cancelled.\n'; return 0 ;;
+    esac
+  fi
+
+  perform_install_update "$prefix" --version "$latest"
+  local rc=$?
+  if [[ "$rc" == 0 ]]; then
+    set_update_config skippedVersion ""
+    write_update_cache "$latest" "$url"
+  fi
+  return "$rc"
+}
 
 # doctor --json: one JSON array with every app's own doctor report.
 doctor_json() {
@@ -92,6 +463,14 @@ doctor() {
     printf '%-11s %-9s %s%-7s%s %s\n' "$app" "${version:--}" "$colour" "$status" "$reset" "${permission:--}"
   done < <(installed_apps)
   printf '\n%s\n' "$(sw_vers -productName) $(sw_vers -productVersion) ($(uname -m))"
+  local installed state policy skipped latest url newer
+  if installed="$(installed_version)"; then
+    state="$(inspect_update_state "$installed")"
+    IFS='|' read -r policy skipped latest url newer _ <<<"$state"
+    if [[ "$newer" == 1 && "$policy" != never && "$skipped" != "$latest" ]]; then
+      printf '%sUpdate available:%s %s -> %s (run: gesher update)\n' "$yellow" "$reset" "$installed" "$latest"
+    fi
+  fi
   if [[ "$failed" == 1 ]]; then
     printf 'Grant access with: gesher permissions   (or <app>-cli permissions --request)\n'
     return 1
@@ -109,13 +488,15 @@ permissions() {
   done < <(installed_apps)
 }
 
+maybe_check_and_prompt_update "$@"
+
 case "${1:-}" in
   "" | -h | --help | help) usage; exit 0 ;;
   --version | version)
     if [[ -f "${release}/RELEASE" ]]; then
-      printf 'gesher %s (%s)\n' "$("${release}/weather-cli" --version)" "$(sed -n 's/^commit=//p' "${release}/RELEASE")"
+      printf 'gesher %s (%s)\n' "$(installed_version)" "$(sed -n 's/^commit=//p' "${release}/RELEASE")"
     else
-      printf 'gesher %s\n' "$("${release}/weather-cli" --version)"
+      printf 'gesher %s\n' "$(installed_version)"
     fi
     exit 0 ;;
   doctor) shift; doctor "$@"; exit $? ;;
@@ -128,12 +509,7 @@ case "${1:-}" in
     exec "${release}/install-plugins.sh" --bin-dir "$(install_prefix plugins)/bin" "$@" ;;
   update)
     shift
-    if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-      printf 'Usage: gesher update [--version X.Y.Z]\n\nInstalls the latest release (or the given one) in place. Permissions and AI app\nconnections are kept; connect more with: gesher connect\n'
-      exit 0
-    fi
-    prefix="$(install_prefix update)"
-    curl -fsSL "$installer_url" | bash -s -- --prefix "$prefix" --no-connect --no-modify-path "$@"
+    run_update_command "$@"
     exit $? ;;
   rollback | uninstall)
     command="$1"
@@ -154,4 +530,5 @@ if [[ ! -x "${release}/${app}-cli" ]]; then
   fi
   exit 64
 fi
+export GESHER_FROM_LAUNCHER=1
 exec "${release}/${app}-cli" "$@"

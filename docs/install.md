@@ -83,3 +83,14 @@ where.
   the one-line install command to run in Terminal themselves, then continue from step 3.
 - Every CLI explains itself: `<app>-cli --help`, `<app>-cli <command> --help`.
 - Full guide: [docs/permissions.md](permissions.md). Uninstall: `gesher uninstall`.
+
+## Updates
+
+Gesher checks GitHub Releases in the background (cached for 6 hours in `~/.cache/gesher/update-check.json`)
+so normal commands stay fast and MCP/JSON stdout is never modified.
+
+- `gesher update --check [--json]`: check immediately for a newer release without installing.
+- `gesher update [--yes]`: update in place with SHA-256 verification while preserving signing, permissions and AI app connections.
+- `gesher update --auto ask|always|never`: choose whether interactive runs prompt before updating (`ask`, default), update automatically (`always`), or stay manual (`never`).
+- `gesher update --skip X.Y.Z` (or `clear`): skip prompts for a specific version.
+- Set `GESHER_NO_UPDATE_CHECK=1` to disable background update checks in scripts or CI.

@@ -18,7 +18,11 @@ enum BuiltinOperations {
                     permission: permission.map {
                         PermissionCoordinator(backend: backend).inspect(service: $0).permission
                     },
-                    defaults: UserConfig.load().values[app])
+                    defaults: UserConfig.load().values[app],
+                    updateAvailable: {
+                        let status = UpdateChecker().cachedStatus(installed: Gesher.version)
+                        return status.shouldNotify ? status.latest : nil
+                    }())
                 return OperationResult(value: try JSONValue.encode(report), pretty: nil, failed: 0, succeeded: 1)
             }
         ]
@@ -89,6 +93,7 @@ enum BuiltinOperations {
         let os: String
         let permission: String?
         let defaults: [String: String]?
+        let updateAvailable: String?
     }
 
     struct PermissionReport: Encodable {
